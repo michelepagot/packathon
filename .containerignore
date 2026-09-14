@@ -1,4 +1,4 @@
-# Build directories
+# Build artifacts and local cache
 build/
 build-*/
 dist/
@@ -6,12 +6,11 @@ bin/
 cmake-build-*/
 .cache/
 
-# IDE files
+# Version control
+.git/
+
+# Editor files
 .vscode/
 .idea/
 *.swp
 *~
-
-# OS files
-.DS_Store
-Thumbs.db

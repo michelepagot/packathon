@@ -1,0 +1,111 @@
+# =============================================================================
+# Packathon - Multi-Stage Debian Build & Runtime Container
+# =============================================================================
+# Separation of concerns:
+#   Stage 1 (builder): Strict build-time tools, dev headers, and dpkg-dev.
+#   Stage 2 (runtime): Vanilla minimal base + strictly runtime libraries only.
+#
+# Usage:
+#   1. Build packages only:
+#      podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
+#      podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
+#      # Generated .deb and .tar.gz packages are placed in ./dist/
+#
+#   2. Build lightweight runtime GUI container:
+#      podman build --target runtime -t localhost/packathon-debian:runtime -f packaging/containers/Containerfile.debian .
+#
+#   3. Run the GUI application using Podman on the host display:
+#      xhost +local:$USER
+#      podman run --rm --net=host --ipc=host \
+#        -e DISPLAY=$DISPLAY \
+#        -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+#        --device /dev/dri \
+#        localhost/packathon-debian:runtime
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# STAGE 1: Builder (Build-time dependencies only)
+# -----------------------------------------------------------------------------
+FROM debian:bookworm-slim AS builder
+
+LABEL org.opencontainers.image.title="Packathon Debian Builder" \
+      org.opencontainers.image.description="Build-time environment for compiling ocio and packaging DEBs"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build tools, dev headers, and package generator
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        # [Build-Time Tools]
+        gcc \
+        g++ \
+        make \
+        libc6-dev \
+        cmake \
+        git \
+        ca-certificates \
+        file \
+        tar \
+        gzip \
+        # [Build-Time Development Headers]
+        libx11-dev \
+        libxrandr-dev \
+        libxinerama-dev \
+        libxcursor-dev \
+        libxi-dev \
+        libgl1-mesa-dev \
+        libglu1-mesa-dev \
+        libasound2-dev \
+        # [Packaging Tool]
+        dpkg-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Copy project source into container for self-contained multi-stage build of runtime stage
+COPY . /src-build
+
+# Build binary in /build so Stage 2 can copy it directly
+RUN cmake -S /src-build -B /build -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build /build --config Release -j$(nproc)
+
+# Default action when run with volume mount (-v "$PWD:/src:Z"):
+# Builds in an isolated /tmp/build directory so it NEVER conflicts with or pollutes
+# any host build/ directory CMakeCache.txt, then exports packages into /src/dist/
+CMD ["sh", "-c", "rm -rf /tmp/build && cmake -S /src -B /tmp/build -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/build --config Release -j$(nproc) && cd /tmp/build && cpack -G \"TGZ;DEB\" && mkdir -p /src/dist && cp -f *.tar.gz *.deb /src/dist/ && echo '==> Generated packages in dist/:' && ls -lh /src/dist/*.tar.gz /src/dist/*.deb"]
+
+
+# -----------------------------------------------------------------------------
+# STAGE 2: Runtime (Runtime dependencies only on vanilla minimal Debian)
+# -----------------------------------------------------------------------------
+FROM debian:bookworm-slim AS runtime
+
+LABEL org.opencontainers.image.title="Packathon Debian Runtime" \
+      org.opencontainers.image.description="Minimal vanilla Debian runtime environment for ocio GUI"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install strictly RUNTIME shared libraries required to execute ocio
+# (No gcc, no make, no cmake, no git, no dev packages)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        # [Runtime Graphics & Display Libraries]
+        libx11-6 \
+        libgl1 \
+        libglu1-mesa \
+        libglx-mesa0 \
+        # [Runtime Audio Library]
+        libasound2 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy compiled binary from builder stage
+COPY --from=builder /build/bin/ocio /usr/local/bin/ocio
+
+# Non-root user setup for running GUI application safely
+RUN useradd -m -u 1000 appuser
+USER appuser
+ENV HOME=/home/appuser
+
+ENTRYPOINT ["/usr/local/bin/ocio"]

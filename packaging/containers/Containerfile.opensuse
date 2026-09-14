@@ -1,0 +1,104 @@
+# =============================================================================
+# Packathon - Multi-Stage openSUSE Tumbleweed Build & Runtime Container
+# =============================================================================
+# Separation of concerns:
+#   Stage 1 (builder): Strict build-time tools, dev headers, and rpm-build.
+#   Stage 2 (runtime): Vanilla minimal base + strictly runtime libraries only.
+#
+# Usage:
+#   1. Build packages only:
+#      podman build --target builder -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse .
+#      podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder
+#      # Generated .rpm and .tar.gz packages are placed in ./dist/
+#
+#   2. Build lightweight runtime GUI container:
+#      podman build --target runtime -t localhost/packathon-opensuse:runtime -f packaging/containers/Containerfile.opensuse .
+#
+#   3. Run the GUI application using Podman on the host display:
+#      xhost +local:$USER
+#      podman run --rm --net=host --ipc=host \
+#        -e DISPLAY=$DISPLAY \
+#        -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+#        --device /dev/dri \
+#        localhost/packathon-opensuse:runtime
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# STAGE 1: Builder (Build-time dependencies only)
+# -----------------------------------------------------------------------------
+FROM registry.opensuse.org/opensuse/tumbleweed:latest AS builder
+
+LABEL org.opencontainers.image.title="Packathon openSUSE Builder" \
+      org.opencontainers.image.description="Build-time environment for compiling ocio and packaging RPMs"
+
+# Install build tools and development headers
+RUN zypper --non-interactive refresh && \
+    zypper --non-interactive in --no-recommends \
+        # [Build-Time Tools]
+        gcc \
+        gcc-c++ \
+        make \
+        cmake \
+        git \
+        ca-certificates-mozilla \
+        file \
+        tar \
+        gzip \
+        # [Build-Time Development Headers]
+        libX11-devel \
+        libXrandr-devel \
+        libXinerama-devel \
+        libXcursor-devel \
+        libXi-devel \
+        Mesa-libGL-devel \
+        alsa-devel \
+        # [Packaging Tool]
+        rpm-build \
+    && zypper clean -a \
+    && rm -rf /var/cache/zypp/*
+
+WORKDIR /src
+
+# Copy project source into container for self-contained multi-stage build of runtime stage
+COPY . /src-build
+
+# Build binary in /build so Stage 2 can copy it directly
+RUN cmake -S /src-build -B /build -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build /build --config Release -j$(nproc)
+
+# Default action when run with volume mount (-v "$PWD:/src:Z"):
+# Builds in an isolated /tmp/build directory so it NEVER conflicts with or pollutes
+# any host build/ directory CMakeCache.txt, then exports packages into /src/dist/
+CMD ["sh", "-c", "rm -rf /tmp/build && cmake -S /src -B /tmp/build -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/build --config Release -j$(nproc) && cd /tmp/build && cpack -G \"TGZ;RPM\" && mkdir -p /src/dist && cp -f *.tar.gz *.rpm /src/dist/ && echo '==> Generated packages in dist/:' && ls -lh /src/dist/*.tar.gz /src/dist/*.rpm"]
+
+
+# -----------------------------------------------------------------------------
+# STAGE 2: Runtime (Runtime dependencies only on vanilla minimal openSUSE)
+# -----------------------------------------------------------------------------
+FROM registry.opensuse.org/opensuse/tumbleweed:latest AS runtime
+
+LABEL org.opencontainers.image.title="Packathon openSUSE Runtime" \
+      org.opencontainers.image.description="Minimal vanilla openSUSE runtime environment for ocio GUI"
+
+# Install strictly RUNTIME shared libraries required to execute ocio
+# (No gcc, no cmake, no git, no devel packages)
+RUN zypper --non-interactive refresh && \
+    zypper --non-interactive in --no-recommends \
+        # [Runtime Graphics & Display Libraries]
+        libX11-6 \
+        Mesa-libGL1 \
+        libGLU1 \
+        # [Runtime Audio Library]
+        libasound2 \
+    && zypper clean -a \
+    && rm -rf /var/cache/zypp/*
+
+# Copy compiled binary from builder stage
+COPY --from=builder /build/bin/ocio /usr/local/bin/ocio
+
+# Non-root user setup for running GUI application safely
+RUN useradd -m -u 1000 appuser
+USER appuser
+ENV HOME=/home/appuser
+
+ENTRYPOINT ["/usr/local/bin/ocio"]

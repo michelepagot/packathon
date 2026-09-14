@@ -54,7 +54,8 @@ sudo apt-get install -y cmake build-essential git \
 ```
 On openSUSE / SUSE:
 ```bash
-sudo zypper in -y cmake gcc git libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel Mesa-libGL-devel
+sudo zypper in -y cmake gcc gcc-c++ git \
+    libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel Mesa-libGL-devel alsa-devel rpm-build
 ```
 
 ### Build & Run
@@ -93,6 +94,37 @@ Build and bundle using `flatpak-builder`:
 flatpak-builder --force-clean build-dir packaging/flatpak/org.packathon.ocio.yml
 flatpak-builder --export-bundle repo ocio.flatpak org.packathon.ocio
 ```
+
+### 4. Controlled Container Environments (Podman)
+Each `Containerfile` separates **build-time** dependencies from clean **runtime** environments via multi-stage builds. Builds occur in container-isolated scratch space (`/tmp/build`) so they never conflict with or overwrite host build caches.
+
+- **Packaging (.rpm / .deb)** (artifacts are exported into `./dist/`):
+  ```bash
+  # openSUSE (builds .rpm and .tar.gz into ./dist/):
+  podman build --target builder -t localhost/packathon-opensuse:builder -f Containerfile.opensuse .
+  podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder
+
+  # Debian (builds .deb and .tar.gz into ./dist/):
+  podman build --target builder -t localhost/packathon-debian:builder -f Containerfile.debian .
+  podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
+  ```
+
+- **Running GUI in Podman Container**:
+  ```bash
+  # 1. Build the minimal runtime image (choose openSUSE or Debian)
+  podman build --target runtime -t localhost/packathon-opensuse:runtime -f Containerfile.opensuse .
+  # or:
+  podman build --target runtime -t localhost/packathon-debian:runtime -f Containerfile.debian .
+
+  # 2. Grant X11 access and run ocio on host display
+  xhost +local:$USER
+  podman run --rm -it --net=host --ipc=host \
+    -e DISPLAY=$DISPLAY \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+    --device /dev/dri \
+    localhost/packathon-opensuse:runtime   # or localhost/packathon-debian:runtime
+  ```
+
 
 ---
 
