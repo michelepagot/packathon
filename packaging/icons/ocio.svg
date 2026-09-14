@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="irisGrad" cx="45%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#38b6ff"/>
+      <stop offset="60%" stop-color="#1c6ca4"/>
+      <stop offset="100%" stop-color="#0c2b44"/>
+    </radialGradient>
+    <radialGradient id="pupilGrad" cx="45%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#1a1c23"/>
+      <stop offset="100%" stop-color="#08090d"/>
+    </radialGradient>
+    <linearGradient id="scleraGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e8ecf2"/>
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e222d"/>
+      <stop offset="100%" stop-color="#12141a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded rectangle for app icon standard -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  <rect width="512" height="512" rx="112" fill="none" stroke="#2e3547" stroke-width="4"/>
+
+  <!-- Sclera / Eyeball -->
+  <g filter="url(#shadow)">
+    <path d="M 64 256 C 140 130 372 130 448 256 C 372 382 140 382 64 256 Z"
+          fill="url(#scleraGrad)"
+          stroke="#d0d7e3"
+          stroke-width="3"/>
+  </g>
+
+  <!-- Eyelid inner shadow -->
+  <path d="M 68 256 C 140 148 372 148 444 256 C 372 200 140 200 68 256 Z"
+        fill="#1e222d"
+        opacity="0.12"/>
+
+  <!-- Iris (slightly tracking towards top-right for character) -->
+  <circle cx="280" cy="245" r="82" fill="#0b131e"/>
+  <circle cx="280" cy="245" r="80" fill="url(#irisGrad)"/>
+
+  <!-- Pupil -->
+  <circle cx="284" cy="245" r="38" fill="url(#pupilGrad)"/>
+
+  <!-- Specular highlights -->
+  <circle cx="262" cy="225" r="14" fill="#ffffff" opacity="0.95"/>
+  <circle cx="298" cy="262" r="6" fill="#ffffff" opacity="0.75"/>
+
+  <!-- Upper eyelid crease line -->
+  <path d="M 100 165 C 200 120 312 120 412 165"
+        fill="none"
+        stroke="#4a5568"
+        stroke-width="5"
+        stroke-linecap="round"
+        opacity="0.6"/>
+
+  <!-- Eyelid upper rim -->
+  <path d="M 64 256 C 140 130 372 130 448 256"
+        fill="none"
+        stroke="#1a1c24"
+        stroke-width="12"
+        stroke-linecap="round"/>
+
+  <!-- Eyelid lower rim -->
+  <path d="M 64 256 C 140 382 372 382 448 256"
+        fill="none"
+        stroke="#242833"
+        stroke-width="6"
+        stroke-linecap="round"/>
+</svg>

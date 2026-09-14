@@ -1,0 +1,179 @@
+name: Release Packaging
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Linux x86_64: Standalone binary (.tar.gz), .deb, .rpm, .AppImage
+  # ---------------------------------------------------------------------------
+  build-linux:
+    name: Linux x86_64 (Tarball, DEB, RPM, AppImage)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake git file rpm \
+            libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
+            libxinerama-dev libwayland-dev libxkbcommon-dev
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build executable
+        run: cmake --build build --config Release -j$(nproc)
+
+      - name: Generate TGZ, DEB, and RPM via CPack
+        run: |
+          cd build
+          cpack -G "TGZ;DEB;RPM"
+
+      - name: Build AppImage
+        run: |
+          ./packaging/appimage/build-appimage.sh
+
+      - name: Stage Linux artifacts
+        run: |
+          mkdir -p artifacts
+          cp build/*.tar.gz artifacts/ || true
+          cp build/*.deb artifacts/ || true
+          cp build/*.rpm artifacts/ || true
+          cp dist/*.AppImage artifacts/ || true
+          ls -la artifacts/
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocio-linux-artifacts
+          path: artifacts/*
+
+  # ---------------------------------------------------------------------------
+  # 2. Windows x86_64: Native executable in .zip
+  # ---------------------------------------------------------------------------
+  build-windows:
+    name: Windows x86_64 (ZIP)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build executable
+        run: cmake --build build --config Release
+
+      - name: Package with CPack
+        shell: bash
+        run: |
+          cd build
+          cpack -G ZIP
+          mkdir -p ../artifacts
+          cp *.zip ../artifacts/
+          ls -la ../artifacts/
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocio-windows-artifacts
+          path: artifacts/*
+
+  # ---------------------------------------------------------------------------
+  # 3. macOS ARM64 (Apple Silicon): Native executable in .tar.gz
+  # ---------------------------------------------------------------------------
+  build-macos:
+    name: macOS ARM64 (Tarball)
+    runs-on: macos-14
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build executable
+        run: cmake --build build --config Release
+
+      - name: Package with CPack
+        run: |
+          cd build
+          cpack -G TGZ
+          mkdir -p ../artifacts
+          cp *.tar.gz ../artifacts/
+          ls -la ../artifacts/
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocio-macos-artifacts
+          path: artifacts/*
+
+  # ---------------------------------------------------------------------------
+  # 4. Flatpak: Sandboxed .flatpak bundle
+  # ---------------------------------------------------------------------------
+  build-flatpak:
+    name: Flatpak Bundle
+    runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Flatpak package
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: ocio.flatpak
+          manifest-path: packaging/flatpak/org.packathon.ocio.yml
+          run-tests: false
+
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocio-flatpak-artifact
+          path: ocio.flatpak
+
+  # ---------------------------------------------------------------------------
+  # 5. Publish all artifacts to GitHub Release
+  # ---------------------------------------------------------------------------
+  publish-release:
+    name: Publish Release Artifacts
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [build-linux, build-windows, build-macos, build-flatpak]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List collected release assets
+        run: |
+          echo "=== Release assets ready for publishing ==="
+          ls -lh release-assets/
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true

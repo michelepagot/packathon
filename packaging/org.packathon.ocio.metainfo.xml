@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.packathon.ocio</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Ocio</name>
+  <summary>A Raylib eye-tracking application from the Packathon packaging project</summary>
+  <description>
+    <p>
+      Ocio is an interactive graphical application built in C with raylib.
+      The window displays an eye whose pupil and iris smoothly follow the mouse cursor
+      using organic saccadic damping.
+    </p>
+    <p>
+      Developed as part of the Packathon project to experiment with and document
+      diverse software packaging and distribution formats:
+    </p>
+    <ul>
+      <li>Native architecture binaries (Linux x86_64, Windows, macOS ARM)</li>
+      <li>Debian (.deb) and RPM (.rpm) distribution packages</li>
+      <li>Portable AppImage bundles</li>
+      <li>Flatpak sandboxed packages</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">ocio.desktop</launchable>
+  <url type="homepage">https://github.com/michelepa/Packathon</url>
+  <provides>
+    <binary>ocio</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-09-14">
+      <description>
+        <p>Initial release of Ocio with gaze tracking, dynamic color themes, and multi-format packaging pipelines.</p>
+      </description>
+    </release>
+  </releases>
+</component>

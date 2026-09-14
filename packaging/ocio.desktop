@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Ocio
+GenericName=Eye Follow Demo
+Comment=Raylib eye-tracking application from the Packathon packaging project
+Exec=ocio
+Icon=ocio
+Terminal=false
+Categories=Game;Graphics;Utility;
+Keywords=raylib;packaging;eye;demo;ocio;
+StartupNotify=true
