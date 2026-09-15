@@ -85,83 +85,13 @@ flatpak-builder --export-bundle repo ocio.flatpak org.packathon.ocio
 
 ---
 
-## 5. Explicit Build-Time vs. Runtime Separation (Podman Containerfiles)
+## 5. Container-Based Packaging & Testing (Podman)
 
-To strictly audit, control, and document the toolchains needed for each packaging ecosystem without polluting the host, the project provides multi-stage `Containerfile`s that strictly separate **build-time** dependencies from **runtime** dependencies:
+To isolate toolchains without host pollution, test package dependency resolution in pristine upstream distributions, and safely execute GUI applications, Packathon provides containerized environments for both **openSUSE Tumbleweed** and **Debian Bookworm**.
 
-### Dependency Separation Overview
+For the complete guide on building the container images, obtaining `.rpm` / `.deb` artifacts, verifying packages in vanilla upstream containers, and running the GUI with display/GPU pass-through, see:
 
-| Ecosystem | Stage | Purpose | Minimal Package Set |
-|---|---|---|---|
-| **openSUSE** | `builder` | Compiling, static raylib, CPack RPM | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `rpm-build` |
-| **openSUSE** | `runtime` | Running the `ocio` GUI application | `libX11-6`, `Mesa-libGL1`, `libGLU1`, `libasound2` *(no compilers, no cmake, no devel packages)* |
-| **Debian** | `builder` | Compiling, static raylib, CPack DEB | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev` |
-| **Debian** | `runtime` | Running the `ocio` GUI application | `libx11-6`, `libgl1`, `libglu1-mesa`, `libglx-mesa0`, `libasound2` *(no compilers, no make, no dev packages)* |
+👉 **[Container-Based Packaging & Testing Guide](container-packaging.md)**
 
----
-
-### Can Vanilla Minimal Distro Images Run the Binary Directly?
-**No.** Both `registry.opensuse.org/opensuse/tumbleweed:latest` and `debian:bookworm-slim` are headless server/container bases that do not bundle graphical display or OpenGL libraries out of the box (`libOpenGL.so.0`, `libGLX.so.0`, `libGLU.so.1`, `libX11.so.6`).
-
-To run `ocio` in either distro, you either:
-1. Use the **`runtime`** container stage (installs only the minimal shared libraries required for OpenGL and X11 display).
-2. Install the generated package (`zypper in ./ocio-0.1.0-1.x86_64.rpm` or `apt-get install ./ocio_0.1.0_amd64.deb`), which automatically resolves and pulls in strictly the necessary runtime dependencies.
-
----
-
-### Building Packages (.rpm / .deb) via Podman
-
-Builds occur inside an isolated scratch directory (`/tmp/build`) within the container and output packages directly to `./dist/` on the host, avoiding any conflict with host CMake caches:
-
-```bash
-# openSUSE Tumbleweed -> generates .rpm and .tar.gz in ./dist/
-podman build --target builder -t localhost/packathon-opensuse:builder -f Containerfile.opensuse .
-podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder
-
-# Debian Bookworm -> generates .deb and .tar.gz in ./dist/
-podman build --target builder -t localhost/packathon-debian:builder -f Containerfile.debian .
-podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
-```
-
----
-
-### Running the GUI Application via Podman
-
-Podman runs desktop GUI applications on your local display by mounting the display socket and enabling GPU hardware acceleration:
-
-#### 1. Build the Runtime Image
-```bash
-# For openSUSE:
-podman build --target runtime -t localhost/packathon-opensuse:runtime -f Containerfile.opensuse .
-
-# For Debian:
-podman build --target runtime -t localhost/packathon-debian:runtime -f Containerfile.debian .
-```
-
-#### 2. Launch GUI Window
-
-**On X11:**
-```bash
-# Authorize local connections to X server
-xhost +local:$USER
-
-# Run container (works with localhost/packathon-opensuse:runtime or localhost/packathon-debian:runtime)
-podman run --rm -it \
-  --net=host \
-  --ipc=host \
-  -e DISPLAY=$DISPLAY \
-  -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
-  --device /dev/dri \
-  localhost/packathon-opensuse:runtime
-```
-
-**On Wayland:**
-```bash
-podman run --rm -it \
-  -e WAYLAND_DISPLAY=$WAYLAND_DISPLAY \
-  -v "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY:$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY:ro" \
-  --device /dev/dri \
-  localhost/packathon-opensuse:runtime
-```
 
 

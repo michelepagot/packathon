@@ -33,7 +33,7 @@ Every GitHub release publishes a comprehensive set of distribution artifacts:
 | **AppImage** | `ocio-x86_64.AppImage` | Standalone single-file executable for any Linux distro |
 | **Flatpak** | `ocio.flatpak` | Sandboxed desktop bundle |
 
-For an in-depth breakdown of how each packaging approach works and their respective trade-offs, see the [Packaging Guide](docs/packaging-guide.md).
+For an in-depth breakdown of how each packaging approach works, see the [Packaging Guide](docs/packaging-guide.md) and the [Container-Based Packaging & Testing Guide](docs/container-packaging.md).
 
 ---
 
@@ -125,6 +125,7 @@ Each `Containerfile` separates **build-time** dependencies from clean **runtime*
     localhost/packathon-opensuse:runtime   # or localhost/packathon-debian:runtime
   ```
 
+  For full details on testing packages in vanilla containers, display pass-through, and architectural rationale, see the [Container-Based Packaging & Testing Guide](docs/container-packaging.md).
 
 ---
 
