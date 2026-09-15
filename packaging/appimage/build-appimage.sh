@@ -4,11 +4,12 @@ set -euo pipefail
 # Build AppImage for ocio (Packathon project)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-BUILD_DIR="${ROOT_DIR}/build"
+BUILD_DIR="${BUILD_DIR:-${ROOT_DIR}/build}"
 APPDIR="${BUILD_DIR}/AppDir"
-OUTPUT_DIR="${ROOT_DIR}/dist"
+OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/dist}"
 
 mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${BUILD_DIR}"
 
 echo "=== 1. Building ocio with CMake ==="
 cmake -B "${BUILD_DIR}" -S "${ROOT_DIR}" -DCMAKE_BUILD_TYPE=Release

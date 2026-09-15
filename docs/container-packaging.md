@@ -6,9 +6,7 @@ This guide explains how **Packathon** uses [Podman](https://podman.io/) containe
 3. **Running the GUI** directly inside containerized runtimes with local display and GPU hardware pass-through.
 4. *(Roadmap)* Extending container-isolated workflows to **AppImage** and **Flatpak** builds and test runs.
 
----
-
-## 1. Architectural Philosophy: Build vs. Runtime Separation
+## Architectural Philosophy: Build vs. Runtime Separation
 
 To prevent dependency creep and maintain strict control over required toolchains, container images are split into two distinct stages via multi-stage `Containerfile`s:
 
@@ -19,9 +17,7 @@ To prevent dependency creep and maintain strict control over required toolchains
 | **Debian** | `builder` | `localhost/packathon-debian:builder` | Compiling C/C++, static raylib, CPack DEB | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev` |
 | **Debian** | `runtime` | `localhost/packathon-debian:runtime` | Running the `ocio` GUI application | `libx11-6`, `libgl1`, `libglu1-mesa`, `libglx-mesa0`, `libasound2` *(zero compilers, zero dev headers)* |
 
----
-
-## 2. Building the Images
+## Building the Images
 
 All container builds should be executed from the repository root:
 
@@ -43,9 +39,7 @@ podman build --target builder -t localhost/packathon-debian:builder -f Container
 podman build --target runtime -t localhost/packathon-debian:runtime -f Containerfile.debian .
 ```
 
----
-
-## 3. Obtaining Packaging Artifacts (.rpm & .deb)
+## Obtaining Packaging Artifacts (.rpm & .deb)
 
 Container builds compile the application in an isolated scratch space (`/tmp/build`) inside the container. This guarantees that host CMake caches (`CMakeCache.txt`) are never overwritten or conflicted. Finished packages are automatically exported into `./dist/` on the host:
 
@@ -65,9 +59,7 @@ podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
 - `ocio_0.1.0_amd64.deb`
 - `ocio-0.1.0-Linux.tar.gz`
 
----
-
-## 4. Testing & Verifying Packages in Pristine Vanilla Containers
+## Testing & Verifying Packages in Pristine Vanilla Containers
 
 A critical validation step is proving that generated packages are truly self-sufficient and declare correct dependencies without requiring manual intervention.
 
@@ -97,9 +89,7 @@ podman run --rm \
 2. APT resolves the dependency tree and downloads 40 packages (including `libgl1`, `libglx-mesa0`, `libgl1-mesa-dri`, `libx11-6`).
 3. `ocio --version` executes successfully and prints `ocio 0.1.0`.
 
----
-
-## 5. Running the GUI Application via Podman
+## Running the GUI Application via Podman
 
 Podman can run the interactive `ocio` GUI on the host's physical display by sharing the X11 or Wayland socket and granting access to the host GPU DRI device node (`/dev/dri`):
 
@@ -129,9 +119,7 @@ podman run --rm -it \
   localhost/packathon-opensuse:runtime   # or localhost/packathon-debian:runtime
 ```
 
----
-
-## 6. Roadmap: Extending to AppImage & Flatpak
+## Roadmap: Extending to AppImage & Flatpak
 
 This containerized build and test workflow is designed to expand to additional packaging formats:
 
