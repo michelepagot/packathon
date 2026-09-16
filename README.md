@@ -22,6 +22,14 @@ $ ocio --version
 ocio 0.1.0
 ```
 
+> [!NOTE]
+> **Simplicity Disclaimer**:
+> Dynamic analysis of the compiled `ocio` binary reveals minimal shared library dependencies:
+> ```
+> DT_NEEDED: libm.so.6, libOpenGL.so.0, libGLX.so.0, libGLU.so.1, libc.so.6
+> ```
+> Because raylib is compiled statically (`libraylib.a`), `ocio` is virtually a single self-contained binary!
+
 ## Controls
 
 | Action | Key / Input |
@@ -91,15 +99,19 @@ cpack -G "TGZ;DEB;RPM"
 Generated packages will appear in `build/`.
 
 ### AppImage
-Run the automated packaging script (uses `linuxdeploy`):
+Run the automated packaging script (uses `appimagetool` directly, no `linuxdeploy` required thanks to static raylib linking):
 ```bash
 ./packaging/appimage/build-appimage.sh
 ```
 The resulting `ocio-x86_64.AppImage` will be placed in `dist/`.
 
 ### Flatpak
-Build and bundle using `flatpak-builder`:
+Build and bundle using the helper script or `flatpak-builder` directly:
 ```bash
+# Automated helper script (fetches SDK/Platform if missing and bundles ocio.flatpak into dist/):
+./packaging/flatpak/build-flatpak.sh
+
+# Or manual step-by-step:
 flatpak-builder --force-clean build-dir packaging/flatpak/org.packathon.ocio.yml
 flatpak-builder --export-bundle repo ocio.flatpak org.packathon.ocio
 ```
@@ -110,20 +122,20 @@ Each `Containerfile` separates **build-time** dependencies from clean **runtime*
 - **Packaging (.rpm / .deb)** (artifacts are exported into `./dist/`):
   ```bash
   # openSUSE (builds .rpm and .tar.gz into ./dist/):
-  podman build --target builder -t localhost/packathon-opensuse:builder -f Containerfile.opensuse .
+  podman build --target builder -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse .
   podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder
 
   # Debian (builds .deb and .tar.gz into ./dist/):
-  podman build --target builder -t localhost/packathon-debian:builder -f Containerfile.debian .
+  podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
   podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
   ```
 
 - **Running GUI in Podman Container**:
   ```bash
   # 1. Build the minimal runtime image (choose openSUSE or Debian)
-  podman build --target runtime -t localhost/packathon-opensuse:runtime -f Containerfile.opensuse .
+  podman build --target runtime -t localhost/packathon-opensuse:runtime -f packaging/containers/Containerfile.opensuse .
   # or:
-  podman build --target runtime -t localhost/packathon-debian:runtime -f Containerfile.debian .
+  podman build --target runtime -t localhost/packathon-debian:runtime -f packaging/containers/Containerfile.debian .
 
   # 2. Grant X11 access and run ocio on host display
   xhost +local:$USER

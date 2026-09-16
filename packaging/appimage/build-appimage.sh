@@ -12,37 +12,29 @@ mkdir -p "${OUTPUT_DIR}"
 mkdir -p "${BUILD_DIR}"
 
 echo "=== 1. Building ocio with CMake ==="
-cmake -B "${BUILD_DIR}" -S "${ROOT_DIR}" -DCMAKE_BUILD_TYPE=Release
+cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
 cmake --build "${BUILD_DIR}" --config Release -j"$(nproc)"
 
-echo "=== 2. Installing to AppDir ==="
+echo "=== 2. Assembling AppDir ==="
 rm -rf "${APPDIR}"
 DESTDIR="${APPDIR}" cmake --install "${BUILD_DIR}"
+cp "${ROOT_DIR}/packaging/ocio.desktop" "${APPDIR}/"
+cp "${ROOT_DIR}/packaging/icons/ocio.png" "${APPDIR}/"
+ln -sf usr/local/bin/ocio "${APPDIR}/AppRun"
 
-echo "=== 3. Fetching linuxdeploy if needed ==="
-LINUXDEPLOY="${BUILD_DIR}/linuxdeploy-x86_64.AppImage"
-if [ ! -f "${LINUXDEPLOY}" ]; then
-    curl -sLo "${LINUXDEPLOY}" https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-    chmod +x "${LINUXDEPLOY}"
-fi
-
-echo "=== 4. Packaging AppImage ==="
+echo "=== 3. Packaging AppImage with appimagetool ==="
 export ARCH=x86_64
-export OUTPUT="${OUTPUT_DIR}/ocio-x86_64.AppImage"
+APPIMAGE_BIN="${OUTPUT_DIR}/ocio-x86_64.AppImage"
 
-EXTRA_FLAGS=""
-if [ -n "${GITHUB_ACTIONS:-}" ] || ! "${LINUXDEPLOY}" --version >/dev/null 2>&1; then
-    EXTRA_FLAGS="--appimage-extract-and-run"
+if command -v appimagetool >/dev/null 2>&1; then
+    appimagetool "${APPDIR}" "${APPIMAGE_BIN}"
+else
+    TOOL="${BUILD_DIR}/appimagetool"
+    if [ ! -f "${TOOL}" ]; then
+        curl -sLo "${TOOL}" https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x "${TOOL}"
+    fi
+    "${TOOL}" --appimage-extract-and-run "${APPDIR}" "${APPIMAGE_BIN}"
 fi
 
-"${LINUXDEPLOY}" ${EXTRA_FLAGS} \
-    --appdir "${APPDIR}" \
-    --desktop-file "${ROOT_DIR}/packaging/ocio.desktop" \
-    --icon-file "${ROOT_DIR}/packaging/icons/ocio.png" \
-    --output appimage
-
-if [ -f ocio-*.AppImage ]; then
-    mv ocio-*.AppImage "${OUTPUT_DIR}/"
-fi
-
-echo "=== AppImage build complete! Output in ${OUTPUT_DIR}/ ==="
+echo "=== AppImage build complete! Output: ${APPIMAGE_BIN} ==="

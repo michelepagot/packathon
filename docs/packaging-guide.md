@@ -7,19 +7,22 @@ This document explains the packaging approaches explored in the **Packathon** pr
 | Format | Target Ecosystem | Containment / Sandboxing | Dependencies Handling | Generation Tool |
 |---|---|---|---|---|
 | **Standalone Tarball / Zip** | Linux, macOS, Windows | None | Minimal runtime deps / static raylib | CMake / CPack (`TGZ`, `ZIP`) |
-| **`.deb` Package** | Debian, Ubuntu, Mint | System integration | Declared dependencies (`dpkg`/`apt`) | CPack `DEB` generator |
-| **`.rpm` Package** | Fedora, RHEL, openSUSE | System integration | Declared dependencies (`rpm`/`dnf`/`zypper`) | CPack `RPM` generator |
-| **AppImage** | Cross-distribution Linux | Single-file, runs anywhere | Bundles runtime libraries into AppDir | `linuxdeploy` / `appimagetool` |
-| **Flatpak** | Modern Linux desktop | Sandboxed (Bubblewrap, Flatpak runtime) | Bundled in runtime/SDK (`org.freedesktop`) | `flatpak-builder` |
+| **`.deb` Package (CPack)** | Debian, Ubuntu, Mint | System integration | Declared dependencies (`dpkg`/`apt`) | CPack `DEB` generator |
+| **`.rpm` Package (CPack)** | Fedora, RHEL, openSUSE | System integration | Declared dependencies (`rpm`/`dnf`/`zypper`) | CPack `RPM` generator |
+| **Canonical Native `.rpm`** | Fedora, openSUSE, RHEL | System integration + unbundling | Automatic ELF dependency tracking (`find-requires`) | `rpmbuild` via [`packaging/rpm/ocio.spec`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/rpm/ocio.spec) |
+| **AppImage** | Cross-distribution Linux | Single-file, runs anywhere | Bundles runtime libraries into AppDir | `appimagetool` (no `linuxdeploy` needed) |
+| **Flatpak** | Modern Linux desktop | Sandboxed (Bubblewrap, Flatpak runtime) | Bundled in runtime/SDK (`org.freedesktop`) | `flatpak-builder` via [`packaging/flatpak/build-flatpak.sh`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/flatpak/build-flatpak.sh) |
 
 ## Native Standalone Binaries (Linux, Windows, macOS ARM)
 
-- Raylib is fetched and compiled statically during the CMake build.
-- The binary is packaged into a compressed archive (`.tar.gz` for Linux and macOS, `.zip` for Windows) along with any desktop integration assets.
-- For Windows and macOS, the CPack generators `ZIP` and `TGZ` produce clean drop-in archives.
+The application supports flexible compilation modes configured via `RAYLIB_MODE`:
+- `FETCH` (default): Raylib is fetched and compiled statically from GitHub during the CMake build.
+- `LOCAL`: Raylib is compiled offline from pre-staged source directory (`build/_deps/raylib-src`).
+- `SYSTEM`: Raylib is discovered from host packages via `find_package(raylib REQUIRED)`.
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+# Standard standalone build (static raylib fetched via git):
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DRAYLIB_MODE=FETCH
 cmake --build build --config Release
 cd build && cpack -G "TGZ"    # or -G "ZIP" on Windows
 ```
@@ -42,11 +45,34 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
 ```
 
+## Canonical RPM Packaging via `rpmbuild` (Without CPack)
+
+To adhere to official upstream distribution standards (openSUSE, Fedora) without CPack abstractions, the project provides a canonical RPM spec file: [`packaging/rpm/ocio.spec`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/rpm/ocio.spec).
+
+### Key Architectural Advantages
+1. **Unbundling Policy**: Links against distro-provided shared library (`libraylib.so.600`), yielding a compact **38 KB** RPM instead of a statically bundled megabyte package.
+2. **Automatic Shared Library Dependencies**: RPM's `find-requires` scans ELF `DT_NEEDED` headers and automatically generates package requirements (`libraylib.so.600()(64bit)`, `libc.so.6`, `libm.so.6`).
+3. **Debuginfo Splitting**: Automatically extracts symbols into separate `ocio-debuginfo` and `ocio-debugsource` RPM packages.
+4. **Multi-Source Support**: Provides `%bcond_with vendored_raylib` to support hermetic, air-gapped builds for OBS/Koji environments.
+
+### Building Manually
+```bash
+# Using the helper script inside the openSUSE builder container:
+podman run --rm -v "$PWD:/src:Z" -w /src \
+  localhost/packathon-opensuse:builder-system \
+  ./packaging/rpm/build-rpm.sh
+```
+Outputs in `./dist/`:
+- `ocio-0.1.0-1.x86_64.rpm` (Binary package, 38 KB)
+- `ocio-0.1.0-1.src.rpm` (Source package / SRPM, 69 KB)
+- `ocio-debuginfo-0.1.0-1.x86_64.rpm` (Debug symbols, 20 KB)
+- `ocio-debugsource-0.1.0-1.x86_64.rpm` (Debug source, 11 KB)
+
 ## AppImage (`.AppImage`)
 
 - An AppImage is an ISO-like or squashfs image containing an entire application directory (`AppDir`), including the binary, desktop entry, application icon, and shared library dependencies not guaranteed on base systems.
-- When executed, an embedded runtime mounts the squashfs filesystem via FUSE and launches `AppRun`.
-- We use [`linuxdeploy`](https://github.com/linuxdeploy/linuxdeploy) to assemble the `AppDir`, resolve library dependencies, and generate `ocio-x86_64.AppImage`.
+- When executed, an embedded runtime mounts the squashfs filesystem via FUSE (or extracts in memory via `--appimage-extract-and-run`) and launches `AppRun`.
+- Because `ocio` links raylib statically and depends only on universal system libraries (`libc`, `libm`, `libGL`), external bundle tools like `linuxdeploy` are not needed. We assemble the `AppDir` directly and package it with `appimagetool`.
 
 ```bash
 ./packaging/appimage/build-appimage.sh
@@ -61,6 +87,10 @@ set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
   - Build module invoking CMake.
 
 ```bash
+# Automated helper script:
+./packaging/flatpak/build-flatpak.sh
+
+# Or manual step-by-step:
 flatpak-builder --force-clean build-dir packaging/flatpak/org.packathon.ocio.yml
 flatpak-builder --export-bundle repo ocio.flatpak org.packathon.ocio
 ```

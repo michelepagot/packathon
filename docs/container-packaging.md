@@ -8,13 +8,15 @@ This guide explains how **Packathon** uses [Podman](https://podman.io/) containe
 
 ## Architectural Philosophy: Build vs. Runtime Separation
 
-To prevent dependency creep and maintain strict control over required toolchains, container images are split into two distinct stages via multi-stage `Containerfile`s:
+To prevent dependency creep and maintain strict control over required toolchains, container images are split into distinct multi-stage targets via `Containerfile`s:
 
 | Ecosystem | Stage | Target Image Name | Purpose | Minimal Package Set |
 |---|---|---|---|---|
-| **openSUSE** | `builder` | `localhost/packathon-opensuse:builder` | Compiling C/C++, static raylib, CPack RPM | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `rpm-build` |
+| **openSUSE** | `builder` | `localhost/packathon-opensuse:builder` | General builds (`FETCH`, `LOCAL`), CPack RPM, AppImage, Flatpak | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `curl`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `rpm-build`, `flatpak`, `flatpak-builder`, `appimagetool` *(zero raylib-devel)* |
+| **openSUSE** | `builder-system` | `localhost/packathon-opensuse:builder-system` | Distro-style unbundled builds (`RAYLIB_MODE=SYSTEM`, manual `rpmbuild`) | Inherits from `builder` + `raylib-devel`, `libraylib600` |
 | **openSUSE** | `runtime` | `localhost/packathon-opensuse:runtime` | Running the `ocio` GUI application | `libX11-6`, `Mesa-libGL1`, `libGLU1`, `libasound2` *(zero compilers, zero devel headers)* |
-| **Debian** | `builder` | `localhost/packathon-debian:builder` | Compiling C/C++, static raylib, CPack DEB | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev` |
+| **Debian** | `builder` | `localhost/packathon-debian:builder` | General builds (`FETCH`, `LOCAL`), CPack DEB, AppImage, Flatpak | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `curl`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev`, `flatpak`, `flatpak-builder`, `appimagetool` *(zero raylib dev headers)* |
+| **Debian** | `builder-system` | `localhost/packathon-debian:builder-system` | Distro-style builds (`RAYLIB_MODE=SYSTEM`) | Inherits from `builder` + pre-compiled Raylib 5.5 in `/usr/local` |
 | **Debian** | `runtime` | `localhost/packathon-debian:runtime` | Running the `ocio` GUI application | `libx11-6`, `libgl1`, `libglu1-mesa`, `libglx-mesa0`, `libasound2` *(zero compilers, zero dev headers)* |
 
 ## Building the Images
@@ -23,41 +25,87 @@ All container builds should be executed from the repository root:
 
 ### openSUSE Tumbleweed Images
 ```bash
-# Build the builder stage (for compiling & packaging .rpm)
-podman build --target builder -t localhost/packathon-opensuse:builder -f Containerfile.opensuse .
+# Build the general builder stage (for FETCH and LOCAL modes)
+podman build --target builder -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse .
+
+# Build the specialized builder-system stage (for SYSTEM mode and manual rpmbuild)
+podman build --target builder-system -t localhost/packathon-opensuse:builder-system -f packaging/containers/Containerfile.opensuse .
 
 # Build the minimal runtime stage (for running GUI)
-podman build --target runtime -t localhost/packathon-opensuse:runtime -f Containerfile.opensuse .
+podman build --target runtime -t localhost/packathon-opensuse:runtime -f packaging/containers/Containerfile.opensuse .
 ```
 
 ### Debian Bookworm Images
 ```bash
-# Build the builder stage (for compiling & packaging .deb)
-podman build --target builder -t localhost/packathon-debian:builder -f Containerfile.debian .
+# Build the general builder stage (for FETCH and LOCAL modes)
+podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
+
+# Build the specialized builder-system stage (for SYSTEM mode)
+podman build --target builder-system -t localhost/packathon-debian:builder-system -f packaging/containers/Containerfile.debian .
 
 # Build the minimal runtime stage (for running GUI)
-podman build --target runtime -t localhost/packathon-debian:runtime -f Containerfile.debian .
+podman build --target runtime -t localhost/packathon-debian:runtime -f packaging/containers/Containerfile.debian .
 ```
 
 ## Obtaining Packaging Artifacts (.rpm & .deb)
 
-Container builds compile the application in an isolated scratch space (`/tmp/build`) inside the container. This guarantees that host CMake caches (`CMakeCache.txt`) are never overwritten or conflicted. Finished packages are automatically exported into `./dist/` on the host:
+Container builds compile the application in an isolated scratch space (`/tmp/build`) inside the container via the shared helper script [`packaging/containers/build-package.sh`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/containers/build-package.sh). This guarantees that host CMake caches (`CMakeCache.txt`) are never overwritten or conflicted. Finished packages and the raw `ocio` binary are automatically exported into `./dist/` on the host:
 
-### Generate `.rpm` and `.tar.gz` (openSUSE)
+### Generate `.rpm`, `.tar.gz`, and raw binary (openSUSE)
 ```bash
 podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder
 ```
 **Output in `./dist/`:**
+- `ocio` (standalone binary)
 - `ocio-0.1.0-1.x86_64.rpm`
 - `ocio-0.1.0-Linux-x86_64.tar.gz`
 
-### Generate `.deb` and `.tar.gz` (Debian)
+### Generate `.deb`, `.tar.gz`, and raw binary (Debian)
 ```bash
 podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
 ```
 **Output in `./dist/`:**
+- `ocio` (standalone binary)
 - `ocio_0.1.0_amd64.deb`
 - `ocio-0.1.0-Linux.tar.gz`
+
+### Configuring Build Matrix Options in Containers
+The shared packaging script ([`packaging/containers/build-package.sh`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/containers/build-package.sh)) supports configuring CMake options directly via container environment variables (`-e`):
+
+| Variable | Default / Options | Purpose |
+|---|---|---|
+| `RAYLIB_MODE` | `FETCH` (options: `FETCH`, `SYSTEM`, `LOCAL`) | Choose where Raylib is obtained: download via Git (`FETCH`), use distro packages (`SYSTEM`), or use pre-staged local source (`LOCAL`). |
+| `RAYLIB_SHARED` | `OFF` (options: `ON`, `OFF`) | Set to `ON` to link Raylib dynamically as a shared library (`libraylib.so`). |
+
+**Examples across the matrix:**
+```bash
+# 1. Standard build (FETCH mode, downloads Raylib via git):
+podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=FETCH localhost/packathon-opensuse:builder
+
+# 2. Hermetic / offline build (LOCAL mode, uses pre-staged source with zero network):
+podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-opensuse:builder
+
+# 3. Canonical distro build (SYSTEM mode, requires builder-system container):
+podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=SYSTEM localhost/packathon-opensuse:builder-system
+
+# 4. Build packages linking Raylib dynamically:
+podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-opensuse:builder
+```
+
+## Building Canonical RPMs Manually in Podman (Without CPack)
+
+Students can build canonical RPM packages manually with `rpmbuild` using [`packaging/rpm/build-rpm.sh`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/rpm/build-rpm.sh) and [`packaging/rpm/ocio.spec`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/rpm/ocio.spec):
+
+```bash
+podman run --rm -v "$PWD:/src:Z" -w /src \
+  localhost/packathon-opensuse:builder-system \
+  ./packaging/rpm/build-rpm.sh
+```
+This produces in `./dist/`:
+- `ocio-0.1.0-1.x86_64.rpm` (38 KB binary RPM)
+- `ocio-0.1.0-1.src.rpm` (69 KB source RPM)
+- `ocio-debuginfo-0.1.0-1.x86_64.rpm` (20 KB debuginfo)
+- `ocio-debugsource-0.1.0-1.x86_64.rpm` (11 KB debugsource)
 
 ## Testing & Verifying Packages in Pristine Vanilla Containers
 
@@ -119,14 +167,66 @@ podman run --rm -it \
   localhost/packathon-opensuse:runtime   # or localhost/packathon-debian:runtime
 ```
 
-## Roadmap: Extending to AppImage & Flatpak
+## Building & Testing AppImage in Podman
 
-This containerized build and test workflow is designed to expand to additional packaging formats:
+Packathon builders come equipped with `appimagetool` pre-extracted into `/usr/lib/appimagetool` to run seamlessly inside containers without requiring FUSE. Because `ocio` links raylib statically, no external bundling tool (`linuxdeploy`) is needed.
 
-### AppImage in Podman (Planned)
-- **Builder**: A container based on an older LTS baseline (e.g. `ubuntu:20.04` or `rockylinux:8`) to guarantee maximum backward glibc compatibility for the generated `ocio-x86_64.AppImage`.
-- **Testing**: Running the resulting `.AppImage` inside vanilla target containers using FUSE emulation or `--appimage-extract-and-run`.
+### 1. Build `ocio-x86_64.AppImage`
+Run the build script inside either the openSUSE or Debian builder container:
+```bash
+podman run --rm -v "$PWD:/src:Z" -w /src \
+  -e BUILD_DIR=/tmp/build \
+  -e OUTPUT_DIR=/src/dist \
+  localhost/packathon-debian:builder \
+  ./packaging/appimage/build-appimage.sh
+```
+The resulting `ocio-x86_64.AppImage` (~1.4 MB) is placed in `./dist/`.
 
-### Flatpak in Podman (Planned)
-- **Builder**: A container equipped with `flatpak-builder` and the `org.freedesktop.Sdk` runtime to compile and generate `ocio.flatpak` in an isolated environment without needing Flatpak SDKs on the host.
-- **Testing**: Validating manifest sandboxing permissions and bundle installation in headless container environments.
+### 2. Verify Execution in Pristine Vanilla Containers
+Test the resulting single-file `.AppImage` in untouched base distribution containers using `--appimage-extract-and-run`:
+
+- **In Vanilla openSUSE Tumbleweed**:
+  ```bash
+  podman run --rm \
+    -v "$PWD/dist/ocio-x86_64.AppImage:/ocio.AppImage:ro,Z" \
+    registry.opensuse.org/opensuse/tumbleweed:latest \
+    /ocio.AppImage --appimage-extract-and-run --version
+  ```
+  *(Output: `AppRun 0.1.0`)*
+
+- **In Vanilla Debian Bookworm**:
+  ```bash
+  podman run --rm \
+    -v "$PWD/dist/ocio-x86_64.AppImage:/ocio.AppImage:ro,Z" \
+    debian:bookworm-slim \
+    /ocio.AppImage --appimage-extract-and-run --version
+  ```
+  *(Output: `AppRun 0.1.0`)*
+
+## Building & Testing Flatpak in Podman
+
+Flatpak packaging builds completely autonomously inside the container by downloading required runtime dependencies directly from Flathub into container storage, eliminating any host dependency on `/var/lib/flatpak`.
+
+> [!NOTE]
+> `flatpak-builder` uses Bubblewrap (`bwrap`) to create build sandboxes with user namespaces, which requires running Podman with `--privileged`.
+
+### 1. Build `ocio.flatpak` Bundle
+```bash
+podman run --privileged --rm -v "$PWD:/src:Z" -w /src \
+  localhost/packathon-debian:builder \
+  ./packaging/flatpak/build-flatpak.sh
+```
+This script:
+1. Adds the Flathub remote inside the container.
+2. Installs `org.freedesktop.Platform//24.08` and `org.freedesktop.Sdk//24.08`.
+3. Runs `flatpak-builder` to compile `ocio` from source.
+4. Packages a standalone bundle `ocio.flatpak` into `./dist/`.
+
+### 2. Test Flatpak in Container
+Install and run the bundle inside a privileged container:
+```bash
+podman run --privileged --rm -v "$PWD/dist:/dist:ro,Z" \
+  localhost/packathon-debian:builder \
+  sh -c "flatpak install -y --user /dist/ocio.flatpak && flatpak run org.packathon.ocio --version"
+```
+*(Output: `ocio 0.1.0`)*

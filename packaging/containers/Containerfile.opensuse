@@ -6,15 +6,23 @@
 #   Stage 2 (runtime): Vanilla minimal base + strictly runtime libraries only.
 #
 # Usage:
-#   1. Build packages only:
+#   1. Build packages (default: FetchContent=ON, static raylib):
 #      podman build --target builder -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse .
 #      podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder
 #      # Generated .rpm and .tar.gz packages are placed in ./dist/
 #
-#   2. Build lightweight runtime GUI container:
+#   2. Build with custom options (RAYLIB_MODE, RAYLIB_SHARED):
+#      # Build with shared raylib (libraylib.so):
+#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-opensuse:builder
+#      # Build using system raylib package (fails if raylib-devel not installed):
+#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=SYSTEM localhost/packathon-opensuse:builder
+#      # Build using pre-staged local source (offline/hermetic, no network):
+#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-opensuse:builder
+#
+#   3. Build lightweight runtime GUI container:
 #      podman build --target runtime -t localhost/packathon-opensuse:runtime -f packaging/containers/Containerfile.opensuse .
 #
-#   3. Run the GUI application using Podman on the host display:
+#   4. Run the GUI application using Podman on the host display:
 #      xhost +local:$USER
 #      podman run --rm --net=host --ipc=host \
 #        -e DISPLAY=$DISPLAY \
@@ -41,6 +49,7 @@ RUN zypper --non-interactive refresh && \
         cmake \
         git \
         ca-certificates-mozilla \
+        curl \
         file \
         tar \
         gzip \
@@ -52,10 +61,20 @@ RUN zypper --non-interactive refresh && \
         libXi-devel \
         Mesa-libGL-devel \
         alsa-devel \
-        # [Packaging Tool]
+        # [Packaging Tools]
         rpm-build \
+        flatpak \
+        flatpak-builder \
     && zypper clean -a \
     && rm -rf /var/cache/zypp/*
+
+# Install appimagetool (pre-extracted to run inside container without FUSE)
+RUN curl -sLo /tmp/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage && \
+    chmod +x /tmp/appimagetool && \
+    cd /tmp && ./appimagetool --appimage-extract && \
+    mv squashfs-root /usr/lib/appimagetool && \
+    ln -s /usr/lib/appimagetool/AppRun /usr/local/bin/appimagetool && \
+    rm -f /tmp/appimagetool
 
 WORKDIR /src
 
@@ -66,10 +85,32 @@ COPY . /src-build
 RUN cmake -S /src-build -B /build -DCMAKE_BUILD_TYPE=Release && \
     cmake --build /build --config Release -j$(nproc)
 
+# Install shared packaging script
+COPY packaging/containers/build-package.sh /usr/local/bin/build-package.sh
+RUN chmod +x /usr/local/bin/build-package.sh
+
 # Default action when run with volume mount (-v "$PWD:/src:Z"):
-# Builds in an isolated /tmp/build directory so it NEVER conflicts with or pollutes
-# any host build/ directory CMakeCache.txt, then exports packages into /src/dist/
-CMD ["sh", "-c", "rm -rf /tmp/build && cmake -S /src -B /tmp/build -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/build --config Release -j$(nproc) && cd /tmp/build && cpack -G \"TGZ;RPM\" && mkdir -p /src/dist && cp -f *.tar.gz *.rpm /src/dist/ && echo '==> Generated packages in dist/:' && ls -lh /src/dist/*.tar.gz /src/dist/*.rpm"]
+# Runs /usr/local/bin/build-package.sh, which compiles in an isolated /tmp/build scratchpad
+# and exports generated packages to /src/dist/ (configurable via RAYLIB_MODE and RAYLIB_SHARED).
+CMD ["/usr/local/bin/build-package.sh"]
+
+
+# -----------------------------------------------------------------------------
+# STAGE 1b: Builder with System Raylib (Inherits builder + adds raylib-devel)
+# -----------------------------------------------------------------------------
+FROM builder AS builder-system
+
+LABEL org.opencontainers.image.title="Packathon openSUSE Builder (System Raylib)" \
+      org.opencontainers.image.description="Build-time environment with pre-installed raylib-devel for RAYLIB_MODE=SYSTEM"
+
+# Install raylib-devel strictly in this specialized stage only
+RUN zypper --non-interactive in --no-recommends raylib-devel && \
+    zypper clean -a && \
+    rm -rf /var/cache/zypp/*
+
+ENV RAYLIB_MODE=SYSTEM
+
+CMD ["/usr/local/bin/build-package.sh"]
 
 
 # -----------------------------------------------------------------------------

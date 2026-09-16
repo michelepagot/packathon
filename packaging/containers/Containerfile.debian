@@ -6,15 +6,23 @@
 #   Stage 2 (runtime): Vanilla minimal base + strictly runtime libraries only.
 #
 # Usage:
-#   1. Build packages only:
+#   1. Build packages (default: FetchContent=ON, static raylib):
 #      podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
 #      podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
 #      # Generated .deb and .tar.gz packages are placed in ./dist/
 #
-#   2. Build lightweight runtime GUI container:
+#   2. Build with custom options (RAYLIB_MODE, RAYLIB_SHARED):
+#      # Build with shared raylib (libraylib.so):
+#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-debian:builder
+#      # Build using system raylib package (fails if libraylib-dev not installed):
+#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=SYSTEM localhost/packathon-debian:builder
+#      # Build using pre-staged local source (offline/hermetic, no network):
+#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-debian:builder
+#
+#   3. Build lightweight runtime GUI container:
 #      podman build --target runtime -t localhost/packathon-debian:runtime -f packaging/containers/Containerfile.debian .
 #
-#   3. Run the GUI application using Podman on the host display:
+#   4. Run the GUI application using Podman on the host display:
 #      xhost +local:$USER
 #      podman run --rm --net=host --ipc=host \
 #        -e DISPLAY=$DISPLAY \
@@ -44,6 +52,7 @@ RUN apt-get update && \
         cmake \
         git \
         ca-certificates \
+        curl \
         file \
         tar \
         gzip \
@@ -56,10 +65,20 @@ RUN apt-get update && \
         libgl1-mesa-dev \
         libglu1-mesa-dev \
         libasound2-dev \
-        # [Packaging Tool]
+        # [Packaging Tools]
         dpkg-dev \
+        flatpak \
+        flatpak-builder \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Install appimagetool (pre-extracted to run inside container without FUSE)
+RUN curl -sLo /tmp/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage && \
+    chmod +x /tmp/appimagetool && \
+    cd /tmp && ./appimagetool --appimage-extract && \
+    mv squashfs-root /usr/lib/appimagetool && \
+    ln -s /usr/lib/appimagetool/AppRun /usr/local/bin/appimagetool && \
+    rm -f /tmp/appimagetool
 
 WORKDIR /src
 
@@ -70,10 +89,35 @@ COPY . /src-build
 RUN cmake -S /src-build -B /build -DCMAKE_BUILD_TYPE=Release && \
     cmake --build /build --config Release -j$(nproc)
 
+# Install shared packaging script
+COPY packaging/containers/build-package.sh /usr/local/bin/build-package.sh
+RUN chmod +x /usr/local/bin/build-package.sh
+
 # Default action when run with volume mount (-v "$PWD:/src:Z"):
-# Builds in an isolated /tmp/build directory so it NEVER conflicts with or pollutes
-# any host build/ directory CMakeCache.txt, then exports packages into /src/dist/
-CMD ["sh", "-c", "rm -rf /tmp/build && cmake -S /src -B /tmp/build -DCMAKE_BUILD_TYPE=Release && cmake --build /tmp/build --config Release -j$(nproc) && cd /tmp/build && cpack -G \"TGZ;DEB\" && mkdir -p /src/dist && cp -f *.tar.gz *.deb /src/dist/ && echo '==> Generated packages in dist/:' && ls -lh /src/dist/*.tar.gz /src/dist/*.deb"]
+# Runs /usr/local/bin/build-package.sh, which compiles in an isolated /tmp/build scratchpad
+# and exports generated packages to /src/dist/ (configurable via RAYLIB_MODE and RAYLIB_SHARED).
+CMD ["/usr/local/bin/build-package.sh"]
+
+
+# -----------------------------------------------------------------------------
+# STAGE 1b: Builder with System Raylib (Inherits builder + installs raylib to /usr/local)
+# -----------------------------------------------------------------------------
+FROM builder AS builder-system
+
+LABEL org.opencontainers.image.title="Packathon Debian Builder (System Raylib)" \
+      org.opencontainers.image.description="Build-time environment with pre-installed raylib in /usr/local for RAYLIB_MODE=SYSTEM"
+
+# Build and install raylib system-wide strictly in this specialized stage only
+RUN git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git /tmp/raylib-build && \
+    cmake -S /tmp/raylib-build -B /tmp/raylib-build/build -DBUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build /tmp/raylib-build/build -j$(nproc) && \
+    cmake --install /tmp/raylib-build/build && \
+    rm -rf /tmp/raylib-build && \
+    ldconfig
+
+ENV RAYLIB_MODE=SYSTEM
+
+CMD ["/usr/local/bin/build-package.sh"]
 
 
 # -----------------------------------------------------------------------------
