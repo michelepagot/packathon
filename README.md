@@ -2,9 +2,8 @@
 
 **Packathon** is a software distribution playground and experimental laboratory.
 The central mission of the project is to explore, compare, document and have fun with
-modern multi-format software packaging and automated release pipelines.
+modern software packaging and automated release pipelines.
 
----
 
 ## The excuse: `ocio`
 
@@ -23,12 +22,14 @@ ocio 0.1.0
 ```
 
 > [!NOTE]
-> **Simplicity Disclaimer**:
-> Dynamic analysis of the compiled `ocio` binary reveals minimal shared library dependencies:
+> **Linking Architecture & Shared Library Dependencies**:
+> By default (`-DRAYLIB_SHARED=OFF`), raylib is compiled statically (`libraylib.a`) into `ocio`, leaving only base system runtime dependencies:
 > ```
 > DT_NEEDED: libm.so.6, libOpenGL.so.0, libGLX.so.0, libGLU.so.1, libc.so.6
 > ```
-> Because raylib is compiled statically (`libraylib.a`), `ocio` is virtually a single self-contained binary!
+> This makes `ocio` an almost standalone executable requiring no external raylib installation.
+> 
+> *Note*: If configured with `-DRAYLIB_SHARED=ON` or `-DRAYLIB_MODE=SYSTEM`, `ocio` links dynamically against `libraylib.so`, which must then be provided by the host environment or packaging bundle.
 
 ## Controls
 
@@ -48,6 +49,11 @@ Every GitHub release publishes a comprehensive set of distribution artifacts:
 | **Linux x86_64** | `ocio-0.1.0-Linux-x86_64.tar.gz` | Standalone binary archive with desktop files |
 | **Windows x86_64** | `ocio-0.1.0-Windows-x86_64.zip` | Standalone native Windows executable |
 | **macOS ARM64** | `ocio-0.1.0-Darwin-arm64.tar.gz` | Native Apple Silicon (M1/M2/M3) binary archive |
+
+But people keep complaining that those are not working on their machines, so let's explore something else
+
+| Format / Target | Artifact Name | Description |
+|---|---|---|
 | **Debian / Ubuntu** | `ocio_0.1.0_amd64.deb` | Standard `.deb` package built via CPack |
 | **RPM (Fedora/RHEL/openSUSE)** | `ocio-0.1.0-1.x86_64.rpm` | Standard `.rpm` package built via CPack |
 | **AppImage** | `ocio-x86_64.AppImage` | Standalone single-file executable for any Linux distro |

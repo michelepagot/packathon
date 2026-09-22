@@ -5,16 +5,209 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
-  test-build:
-    name: Build & Verify
+  # ===========================================================================
+  # 1. openSUSE: Container Builds, All openSUSE Build Modes & RPM Verification
+  # ===========================================================================
+  test-opensuse-containers-and-modes:
+    name: openSUSE (Container Targets, Build Modes & RPM Verification)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      # --- Container Builds ---
+      - name: Build openSUSE builder stage
+        run: |
+          podman build --target builder \
+            -t localhost/packathon-opensuse:builder \
+            -f packaging/containers/Containerfile.opensuse .
+
+      - name: Build openSUSE builder-system stage (with raylib-devel)
+        run: |
+          podman build --target builder-system \
+            -t localhost/packathon-opensuse:builder-system \
+            -f packaging/containers/Containerfile.opensuse .
+
+      - name: Build openSUSE minimal runtime stage
+        run: |
+          podman build --target runtime \
+            -t localhost/packathon-opensuse:runtime \
+            -f packaging/containers/Containerfile.opensuse .
+
+      - name: Verify openSUSE runtime container entrypoint
+        run: |
+          podman run --rm localhost/packathon-opensuse:runtime --version
+          podman run --rm localhost/packathon-opensuse:runtime --help
+
+      # --- Build Modes in openSUSE Containers ---
+      - name: "Build Mode: FETCH (Default, static raylib, CPack RPM & TGZ)"
+        run: |
+          rm -rf dist
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            -e RAYLIB_MODE=FETCH -e RAYLIB_SHARED=OFF \
+            localhost/packathon-opensuse:builder
+          ls -la dist/
+
+      - name: Verify CPack RPM in pristine vanilla openSUSE Tumbleweed
+        run: |
+          RPM_FILE=$(ls dist/*.rpm | grep -v 'src\.rpm' | grep -v 'debug' | head -n1)
+          echo "Testing CPack RPM: $RPM_FILE"
+          podman run --rm -v "$PWD/$RPM_FILE:/ocio.rpm:ro,Z" \
+            registry.opensuse.org/opensuse/tumbleweed:latest \
+            sh -c "zypper --non-interactive in --allow-unsigned-rpm /ocio.rpm && ocio --version && ocio --help"
+
+      - name: "Build Mode: SYSTEM (raylib-devel package)"
+        run: |
+          rm -rf dist
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            -e RAYLIB_MODE=SYSTEM \
+            localhost/packathon-opensuse:builder-system
+          ls -la dist/
+
+      - name: "Build Mode: SHARED (libraylib.so)"
+        run: |
+          rm -rf dist
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            -e RAYLIB_SHARED=ON \
+            localhost/packathon-opensuse:builder
+          ls -la dist/
+
+      - name: "Packaging Mode: Canonical manual rpmbuild (ocio.spec)"
+        run: |
+          rm -rf dist
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            localhost/packathon-opensuse:builder-system \
+            ./packaging/rpm/build-rpm.sh
+          ls -la dist/
+
+      - name: Verify canonical manual RPM in pristine vanilla openSUSE Tumbleweed
+        run: |
+          RPM_FILE=$(ls dist/ocio-[0-9]*.x86_64.rpm | head -n1)
+          echo "Testing canonical RPM: $RPM_FILE"
+          podman run --rm -v "$PWD/$RPM_FILE:/ocio.rpm:ro,Z" \
+            registry.opensuse.org/opensuse/tumbleweed:latest \
+            sh -c "zypper --non-interactive in --allow-unsigned-rpm /ocio.rpm && ocio --version"
+
+  # ===========================================================================
+  # 2. Debian: Container Builds, All Debian Build Modes & DEB/AppImage Verification
+  # ===========================================================================
+  test-debian-containers-and-modes:
+    name: Debian (Container Targets, Build Modes, DEB & AppImage Verification)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- Container Builds ---
+      - name: Build Debian builder stage
+        run: |
+          podman build --target builder \
+            -t localhost/packathon-debian:builder \
+            -f packaging/containers/Containerfile.debian .
+
+      - name: Build Debian builder-system stage (pre-installed raylib)
+        run: |
+          podman build --target builder-system \
+            -t localhost/packathon-debian:builder-system \
+            -f packaging/containers/Containerfile.debian .
+
+      - name: Build Debian minimal runtime stage
+        run: |
+          podman build --target runtime \
+            -t localhost/packathon-debian:runtime \
+            -f packaging/containers/Containerfile.debian .
+
+      - name: Verify Debian runtime container entrypoint
+        run: |
+          podman run --rm localhost/packathon-debian:runtime --version
+          podman run --rm localhost/packathon-debian:runtime --help
+
+      # --- Build Modes in Debian Containers ---
+      - name: "Build Mode: FETCH (Default, static raylib, CPack DEB & TGZ)"
+        run: |
+          rm -rf dist
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            -e RAYLIB_MODE=FETCH -e RAYLIB_SHARED=OFF \
+            localhost/packathon-debian:builder
+          ls -la dist/
+
+      - name: Verify CPack DEB in pristine vanilla Debian Bookworm
+        run: |
+          DEB_FILE=$(ls dist/*.deb | head -n1)
+          echo "Testing CPack DEB: $DEB_FILE"
+          podman run --rm -v "$PWD/$DEB_FILE:/ocio.deb:ro,Z" \
+            debian:bookworm-slim \
+            sh -c "apt-get update && apt-get install -y /ocio.deb && ocio --version && ocio --help"
+
+      - name: "Build Mode: SYSTEM (System raylib in /usr/local)"
+        run: |
+          rm -rf dist
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            -e RAYLIB_MODE=SYSTEM \
+            localhost/packathon-debian:builder-system
+          ls -la dist/
+
+      - name: "Build Mode: LOCAL (Hermetic offline build with pre-staged raylib)"
+        run: |
+          rm -rf dist build
+          git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git build/_deps/raylib-src
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            -e RAYLIB_MODE=LOCAL \
+            localhost/packathon-debian:builder
+          rm -rf build
+          ls -la dist/
+
+      - name: "Packaging Mode: AppImage (Containerized appimagetool)"
+        run: |
+          rm -rf dist
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            -e BUILD_DIR=/tmp/build \
+            -e OUTPUT_DIR=/src/dist \
+            localhost/packathon-debian:builder \
+            ./packaging/appimage/build-appimage.sh
+          ls -la dist/
+
+      - name: Verify AppImage in pristine vanilla Debian Bookworm
+        run: |
+          echo "Testing AppImage: dist/ocio-x86_64.AppImage"
+          podman run --rm -v "$PWD/dist/ocio-x86_64.AppImage:/ocio.AppImage:ro,Z" \
+            debian:bookworm-slim \
+            /ocio.AppImage --appimage-extract-and-run --version
+
+  # ===========================================================================
+  # 3. Flatpak Packaging
+  # ===========================================================================
+  test-flatpak:
+    name: Flatpak Bundle Build
+    runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Flatpak package
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: ocio.flatpak
+          manifest-path: packaging/flatpak/org.packathon.ocio.yml
+          run-tests: false
+
+  # ===========================================================================
+  # 4. Host Sanity Build
+  # ===========================================================================
+  test-host-sanity:
+    name: Host Sanity Build (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -33,9 +226,3 @@ jobs:
         run: |
           ./build/bin/ocio --version
           ./build/bin/ocio --help
-
-      - name: Test CPack packaging
-        run: |
-          cd build
-          cpack -G "TGZ;DEB;RPM"
-          ls -la *.tar.gz *.deb *.rpm
