@@ -226,3 +226,48 @@ jobs:
         run: |
           ./build/bin/ocio --version
           ./build/bin/ocio --help
+
+  # ===========================================================================
+  # 5. Windows Sanity Build (MSVC)
+  # ===========================================================================
+  test-windows:
+    name: Windows Build (MSVC)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build ocio
+        run: cmake --build build --config Release
+
+      - name: Test CLI flags
+        run: |
+          Get-ChildItem -Recurse -Filter "ocio.exe" build | Select-Object -First 1 | ForEach-Object {
+            & $_.FullName --version
+            & $_.FullName --help
+          }
+
+  # ===========================================================================
+  # 6. macOS Sanity Build (Apple Silicon)
+  # ===========================================================================
+  test-macos:
+    name: macOS Build (Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build ocio
+        run: cmake --build build --config Release
+
+      - name: Test CLI flags
+        run: |
+          ./build/bin/ocio --version
+          ./build/bin/ocio --help
+

@@ -14,9 +14,9 @@
 #define WINDOW_HEIGHT 600
 
 // Iris color definitions
-static const Color IRIS_OUTER = (Color){ 20, 75, 145, 255 };  // Deep sapphire blue
-static const Color IRIS_MID   = (Color){ 52, 152, 219, 255 };  // Vibrant azure
-static const Color IRIS_INNER = (Color){ 120, 205, 250, 255 }; // Light cyan highlight
+static const Color IRIS_OUTER = { 20, 75, 145, 255 };  // Deep sapphire blue
+static const Color IRIS_MID   = { 52, 152, 219, 255 };  // Vibrant azure
+static const Color IRIS_INNER = { 120, 205, 250, 255 }; // Light cyan highlight
 
 // Draw stylized eyelashes along the upper lid
 static void DrawUpperEyelashes(Vector2 center, float radiusX, float radiusY, float scale) {
