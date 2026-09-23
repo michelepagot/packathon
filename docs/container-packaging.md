@@ -210,6 +210,18 @@ Flatpak packaging builds completely autonomously inside the container by downloa
 > [!NOTE]
 > `flatpak-builder` uses Bubblewrap (`bwrap`) to create build sandboxes with user namespaces, which requires running Podman with `--privileged`.
 
+### Flatpak Hermetic Sandbox & Dependency Architecture
+
+A core design principle of `flatpak-builder` is **strict network isolation during the compilation phase**:
+1. **Source Download Phase (Network ON)**: `flatpak-builder` parses all entries in `modules[].sources` across the manifest (`org.packathon.ocio.yml`) and downloads/clones them.
+2. **Build & Install Phase (Network OFF)**: `flatpak-builder` strips all network access from the Bubblewrap build sandbox to guarantee hermetic, reproducible compilation.
+
+Because network is prohibited during the build phase, CMake cannot use `FetchContent` to download Raylib at compile time (doing so results in `fatal: unable to access ... Could not resolve host: github.com`).
+
+To solve this following Flathub best practices, `packaging/flatpak/org.packathon.ocio.yml` decomposes the build into two distinct modules:
+- **`raylib` module**: Clones the official Raylib 5.5 tag during the source download phase, compiles it inside the sandbox, and installs it into `/app` (`/app/lib`, `/app/include`).
+- **`ocio` module**: Configured with `-DRAYLIB_MODE=SYSTEM`. CMake's `find_package(raylib REQUIRED)` automatically detects the sandbox-installed Raylib in `/app` and links it, without requiring any network connectivity.
+
 ### 1. Build `ocio.flatpak` Bundle
 ```bash
 podman run --privileged --rm -v "$PWD:/src:Z" -w /src \
@@ -219,7 +231,7 @@ podman run --privileged --rm -v "$PWD:/src:Z" -w /src \
 This script:
 1. Adds the Flathub remote inside the container.
 2. Installs `org.freedesktop.Platform//24.08` and `org.freedesktop.Sdk//24.08`.
-3. Runs `flatpak-builder` to compile `ocio` from source.
+3. Runs `flatpak-builder` to download and compile both `raylib` and `ocio`.
 4. Packages a standalone bundle `ocio.flatpak` into `./dist/`.
 
 ### 2. Test Flatpak in Container
@@ -230,3 +242,4 @@ podman run --privileged --rm -v "$PWD/dist:/dist:ro,Z" \
   sh -c "flatpak install -y --user /dist/ocio.flatpak && flatpak run org.packathon.ocio --version"
 ```
 *(Output: `ocio 0.1.0`)*
+

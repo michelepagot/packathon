@@ -12,11 +12,26 @@ finish-args:
   - --device=dri
 
 modules:
+  - name: raylib
+    buildsystem: cmake
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_EXAMPLES=OFF
+    sources:
+      - type: git
+        url: https://github.com/raysan5/raylib.git
+        tag: '5.5'
+
   - name: ocio
     buildsystem: cmake
     builddir: true
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
+      - -DRAYLIB_MODE=SYSTEM
     sources:
       - type: dir
         path: ../..
+        skip:
+          - .git
+          - build
+          - dist
