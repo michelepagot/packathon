@@ -1,0 +1,18 @@
+{
+  "name": "Packathon Packaging Lab",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y build-essential cmake rpm rpm2cpio dpkg-dev binutils file tree libarchive-tools ttyd && docker pull registry.opensuse.org/opensuse/tumbleweed:latest || true",
+  "forwardPorts": [7681],
+  "portsAttributes": {
+    "7681": {
+      "label": "Web Terminal (ttyd)",
+      "onAutoForward": "notify",
+      "visibility": "private"
+    }
+  },
+  "postStartCommand": "nohup ttyd -p 7681 -m 1 -W -t fontSize=20 -t 'theme={\"background\": \"#121214\", \"foreground\": \"#e4e4e7\"}' bash > /tmp/ttyd.log 2>&1 &"
+}
