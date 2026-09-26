@@ -17,14 +17,9 @@ Pull the physical 3.5" floppy disk out of your backpack:
 
 ## Slides
 
-<div style="margin-top: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 15px;">
-  <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=https://michelepagot.github.io/packathon/" alt="Slide QR Code" style="border-radius: 12px; border: 3px solid rgba(255,255,255,0.4);" />
-  <p style="font-size: 0.85em; margin: 0;"><a href="https://michelepagot.github.io/packathon/" target="_blank">michelepagot.github.io/packathon</a></p>
-  <div style="margin-top: 5px;">
-    <a href="https://codespaces.new/michelepagot/packathon?quickstart=1" target="_blank" rel="noopener noreferrer">
-      <img src="https://github.com/codespaces/badge.svg" alt="Open in GitHub Codespaces" style="border: none; box-shadow: none; vertical-align: middle;" />
-    </a>
-  </div>
+<div style="margin-top: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;">
+  <img src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=https://michelepagot.github.io/packathon/" alt="Slide QR Code" style="border-radius: 12px; border: 3px solid rgba(255,255,255,0.4);" />
+  <p style="font-size: 0.85em;"><a href="https://michelepagot.github.io/packathon/" target="_blank">michelepagot.github.io/packathon</a></p>
 </div>
 
 Note:
@@ -357,7 +352,9 @@ $ podman run --rm -v "$PWD/dist/ocio-0.1.0-1.x86_64.rpm:/ocio.rpm:ro,Z" \
     sh -c "zypper --non-interactive in --allow-unsigned-rpm /ocio.rpm && ocio --version"
 ```
 
-<p style="margin-top: 35px; font-size: 0.85em; text-align: left; color: #ffb74d;">* <code>--allow-unsigned-rpm</code></p>
+<p style="margin-top: 25px; font-size: 0.85em; text-align: left; color: #ffb74d;">* <code>--allow-unsigned-rpm</code></p>
+
+<button class="terminal-btn" onclick="openLiveTerminal()">💻 Open Live Terminal</button>
 
 Note:
 [Live Terminal]: Switch to full-screen terminal tab with Ctrl+Tab (or Alt+Tab).

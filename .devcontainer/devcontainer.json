@@ -14,5 +14,12 @@
       "visibility": "public"
     }
   },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cmake-tools"
+      ]
+    }
+  },
   "postStartCommand": "bash .devcontainer/start-ttyd.sh"
 }
