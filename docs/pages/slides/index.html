@@ -71,6 +71,11 @@
       .reveal .slides {
         z-index: 2;
       }
+
+      /* Hide navigation in speaker-view receiver preview iframes */
+      body.receiver .top-nav {
+        display: none !important;
+      }
     </style>
   </head>
   <body>
@@ -91,7 +96,7 @@
         <section id="slide-source"
                  data-separator="^\r?\n---\r?\n$"
                  data-separator-vertical="^\r?\n--\r?\n$"
-                 data-notes="^Note:">
+                 data-separator-notes="^Note:">
         </section>
       </div>
     </div>
@@ -100,6 +105,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.0.4/reveal.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.0.4/plugin/markdown/markdown.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.0.4/plugin/highlight/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.0.4/plugin/notes/notes.min.js"></script>
 
     <!-- Procedural Cardboard Box Engine -->
     <script src="box-art.js"></script>
@@ -108,6 +114,11 @@
       // Determine language: URL param > localStorage > Browser default > 'en'
       const urlParams = new URLSearchParams(window.location.search);
       let currentLang = urlParams.get('lang');
+
+      // Check for speaker-view receiver mode
+      if (urlParams.has('receiver')) {
+        document.body.classList.add('receiver');
+      }
 
       if (!currentLang || (currentLang !== 'it' && currentLang !== 'en')) {
         const storedLang = localStorage.getItem('packathon_slide_lang');
@@ -155,7 +166,8 @@
 
       Reveal.initialize({
         hash: true,
-        plugins: [ RevealMarkdown, RevealHighlight ]
+        totalTime: 2400, // 40 minutes target pacing
+        plugins: [ RevealMarkdown, RevealHighlight, RevealNotes ]
       }).then(() => {
         if (app) {
           app.resize();

@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packathon - Terminal Iframe Test Bench</title>
+    <style>
+      :root {
+        --bg-color: #121214;
+        --card-bg: #1c1c20;
+        --border-color: #2e2e34;
+        --accent-color: #0066cc;
+        --accent-hover: #0077ee;
+        --success-color: #10b981;
+        --warning-color: #f59e0b;
+        --text-color: #e4e4e7;
+        --text-muted: #9ca3af;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        padding: 24px;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      header h1 {
+        font-size: 1.4rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      header a {
+        color: var(--text-muted);
+        text-decoration: none;
+        font-size: 0.9rem;
+        padding: 6px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        transition: all 0.2s ease;
+      }
+
+      header a:hover {
+        color: #fff;
+        border-color: var(--text-color);
+      }
+
+      .control-panel {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .url-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .url-row label {
+        font-weight: 600;
+        font-size: 0.95rem;
+        min-width: 110px;
+      }
+
+      .url-row input {
+        flex: 1;
+        min-width: 320px;
+        padding: 10px 14px;
+        background: #09090b;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        color: #fff;
+        font-family: monospace;
+        font-size: 0.95rem;
+      }
+
+      .url-row input:focus {
+        outline: none;
+        border-color: var(--accent-color);
+      }
+
+      .btn {
+        padding: 9px 16px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        border-radius: 6px;
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition: all 0.15s ease;
+      }
+
+      .btn-primary {
+        background: var(--accent-color);
+        color: #fff;
+      }
+
+      .btn-primary:hover {
+        background: var(--accent-hover);
+      }
+
+      .btn-secondary {
+        background: #27272a;
+        color: var(--text-color);
+        border-color: var(--border-color);
+      }
+
+      .btn-secondary:hover {
+        background: #3f3f46;
+      }
+
+      .quick-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        flex-wrap: wrap;
+      }
+
+      .quick-actions button {
+        background: none;
+        border: 1px dashed var(--border-color);
+        color: var(--text-muted);
+        padding: 4px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.8rem;
+      }
+
+      .quick-actions button:hover {
+        color: #fff;
+        border-color: var(--text-color);
+      }
+
+      .notes-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 12px;
+        font-size: 0.85rem;
+        line-height: 1.45;
+      }
+
+      .note-card {
+        background: rgba(255, 255, 255, 0.03);
+        border-left: 3px solid var(--accent-color);
+        padding: 10px 14px;
+        border-radius: 4px;
+      }
+
+      .note-card.security {
+        border-left-color: var(--warning-color);
+      }
+
+      .note-card strong {
+        display: block;
+        color: #fff;
+        margin-bottom: 4px;
+      }
+
+      .iframe-wrapper {
+        flex: 1;
+        min-height: 520px;
+        background: #000;
+        border: 2px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .iframe-header {
+        background: #18181b;
+        padding: 8px 14px;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: var(--text-muted);
+      }
+
+      .status-dot.active {
+        background-color: var(--success-color);
+        box-shadow: 0 0 8px var(--success-color);
+      }
+
+      iframe {
+        width: 100%;
+        flex: 1;
+        border: none;
+        background-color: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>🧪 Packathon - Test Bench Porta Privata Codespaces</h1>
+      <a href="index.html">&larr; Torna alle Slide</a>
+    </header>
+
+    <div class="control-panel">
+      <div class="url-row">
+        <label for="termUrl">Endpoint ttyd:</label>
+        <input type="text" id="termUrl" placeholder="https://<codespace-name>-7681.app.github.dev" />
+        <button class="btn btn-primary" onclick="loadIframe()">Carica nell'iFrame</button>
+        <button class="btn btn-secondary" onclick="openDirectly()">Apri in Nuova Scheda &nearr;</button>
+      </div>
+
+      <div class="quick-actions">
+        <span>Preimpostazioni rapide:</span>
+        <button onclick="setEndpoint('http://localhost:7681')">Fallback Locale (http://localhost:7681)</button>
+        <button onclick="setEndpoint('https://michelepagot-packathon-xxxx-7681.app.github.dev')">Esempio Codespaces</button>
+      </div>
+
+      <div class="notes-grid">
+        <div class="note-card security">
+          <strong>🔒 1. Come validare la Porta Privata</strong>
+          Se la porta 7681 è impostata su <em>Private</em>, solo il tuo account GitHub può aprirla. Prova ad aprire lo stesso URL in una <strong>finestra in incognito</strong>: dovresti visualizzare una pagina di login GitHub (403/Redirect). Nessuno dalla platea potrà interagire.
+        </div>
+        <div class="note-card">
+          <strong>🍪 2. Cookie e Cross-Origin iFrame</strong>
+          A causa delle policy sui cookie di terze parti dei browser moderni, se l'iframe rimane bianco o dà errore di sessione, premi <strong>"Apri in Nuova Scheda"</strong> una volta sola per autorizzare il cookie di sessione di <code>*.app.github.dev</code>, poi ricarica l'iframe.
+        </div>
+        <div class="note-card">
+          <strong>⌨️ 3. Test di Interazione</strong>
+          Clicca dentro il riquadro nero sotto per verificare digitazione, dimensione font (leggibilità proiettore), tasti freccia (cronologia bash) e tab-completion.
+        </div>
+      </div>
+    </div>
+
+    <div class="iframe-wrapper">
+      <div class="iframe-header">
+        <div class="status-badge">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">In attesa dell'endpoint...</span>
+        </div>
+        <div id="endpointDisplay" style="font-family: monospace;"></div>
+      </div>
+      <iframe id="terminalFrame" allow="clipboard-read; clipboard-write"></iframe>
+    </div>
+
+    <script>
+      const defaultKey = 'packathon_test_terminal_url';
+      const inputEl = document.getElementById('termUrl');
+      const frameEl = document.getElementById('terminalFrame');
+      const statusDot = document.getElementById('statusDot');
+      const statusText = document.getElementById('statusText');
+      const endpointDisplay = document.getElementById('endpointDisplay');
+
+      // Recupera URL da query param o da localStorage
+      const urlParams = new URLSearchParams(window.location.search);
+      const initialUrl = urlParams.get('term') || localStorage.getItem(defaultKey) || '';
+
+      if (initialUrl) {
+        inputEl.value = initialUrl;
+        loadIframe();
+      }
+
+      function setEndpoint(url) {
+        inputEl.value = url;
+        loadIframe();
+      }
+
+      function loadIframe() {
+        const rawUrl = inputEl.value.trim();
+        if (!rawUrl) return;
+
+        // Normalizza URL
+        let targetUrl = rawUrl;
+        if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+          targetUrl = 'https://' + targetUrl;
+          inputEl.value = targetUrl;
+        }
+
+        localStorage.setItem(defaultKey, targetUrl);
+        endpointDisplay.textContent = targetUrl;
+        statusText.textContent = 'Caricamento frame...';
+        statusDot.className = 'status-dot';
+
+        frameEl.src = targetUrl;
+
+        frameEl.onload = () => {
+          statusDot.className = 'status-dot active';
+          statusText.textContent = 'Frame caricato (Verifica connessione websocket)';
+        };
+
+        frameEl.onerror = () => {
+          statusDot.className = 'status-dot';
+          statusText.textContent = 'Errore caricamento frame (verifica porta o HTTPS)';
+        };
+      }
+
+      function openDirectly() {
+        const url = inputEl.value.trim();
+        if (url) {
+          window.open(url, '_blank');
+        }
+      }
+
+      // Invio nel campo input scatena il caricamento
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          loadIframe();
+        }
+      });
+    </script>
+  </body>
+</html>
