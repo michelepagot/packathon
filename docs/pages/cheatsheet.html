@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packathon - Command Cheat Sheet</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.6;
+        max-width: 860px;
+        margin: 40px auto;
+        padding: 0 20px;
+        color: #222;
+        background-color: #fafafa;
+      }
+      header {
+        margin-bottom: 2em;
+        border-bottom: 1px solid #e1e4e8;
+        padding-bottom: 1em;
+      }
+      h1 {
+        margin-bottom: 0.2em;
+      }
+      p.subtitle {
+        color: #666;
+        margin-top: 0;
+      }
+      nav.breadcrumb {
+        font-size: 0.9em;
+        margin-bottom: 1em;
+      }
+      a {
+        color: #0366d6;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      h2 {
+        margin-top: 1.8em;
+        border-bottom: 1px solid #eaecef;
+        padding-bottom: 0.3em;
+      }
+      h3 {
+        margin-top: 1.4em;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 0.9em;
+      }
+      th, td {
+        border: 1px solid #d0d7de;
+        padding: 8px 12px;
+        text-align: left;
+      }
+      th {
+        background-color: #f6f8fa;
+        font-weight: 600;
+      }
+      tr:nth-child(even) {
+        background-color: #fbfcfd;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+        font-size: 0.88em;
+        background-color: rgba(175, 184, 193, 0.2);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      pre {
+        background-color: #f6f8fa;
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+        padding: 12px 16px;
+        overflow-x: auto;
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+        font-size: 0.88em;
+        line-height: 1.5;
+      }
+      pre code {
+        background-color: transparent;
+        padding: 0;
+        border-radius: 0;
+      }
+      .note-box {
+        background-color: #f0f7ff;
+        border-left: 4px solid #0366d6;
+        padding: 12px 16px;
+        margin: 16px 0;
+        font-size: 0.9em;
+        border-radius: 0 4px 4px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav class="breadcrumb">
+        <a href="index.html">&larr; Back to Home</a> | <a href="slides/">Slides</a>
+      </nav>
+      <h1>Packathon: Command Cheat Sheet</h1>
+      <p class="subtitle">Quick reference guide for Linux packaging, binary forensics, and dependency resolution</p>
+    </header>
+
+    <main>
+      <h2>1. RPM Toolbox</h2>
+      <p>
+        The <code>rpm</code> command operates in two fundamentally different modes:
+      </p>
+      <ul>
+        <li>
+          <strong>Uninstalled File Mode (requires <code>-p</code> / <code>--package</code>)</strong>:
+          Queries an isolated <code>.rpm</code> file on disk (for example, freshly compiled in <code>dist/ocio.rpm</code> or downloaded from GitHub). The package is not installed and the system database is never touched. Use this for <em>pre-installation auditing</em>: inspecting which files will be placed in <code>/usr</code>, checking library requirements, and reading scriptlets before letting them execute as root.
+        </li>
+        <li>
+          <strong>Installed Database Mode (queries <code>/var/lib/rpm</code>)</strong>:
+          Queries packages that are already installed as part of the operating system. Commands take package names (e.g. <code>ocio</code>, <code>libglvnd</code>) or real filesystem paths (<code>-qf</code>), not <code>.rpm</code> file paths. Use this for <em>system maintenance and auditing</em>: identifying which package owns a library, checking reverse dependencies before removal, and verifying file integrity against database digests (<code>rpm -V</code>).
+        </li>
+      </ul>
+
+      <h3>File inspection</h3>
+      <p>Identify the file type and extract contents to the local directory without database registration or root privileges:</p>
+
+      <pre><code># Identify RPM file format, architecture, and lead magic bytes
+$ file ocio-0.1.0-1.x86_64.rpm
+
+# Extract archive contents into the current directory without installing
+$ rpm2cpio ocio-0.1.0-1.x86_64.rpm | cpio -idmv</code></pre>
+
+      <h3>RPM Query Comparison: Uninstalled File vs. System Database</h3>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Uninstalled (.rpm file)</th>
+            <th>Installed (System DB)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Which files are inside?</td>
+            <td><code>rpm -qlp FILE.rpm</code></td>
+            <td><code>rpm -ql PACKAGE_NAME</code></td>
+          </tr>
+          <tr>
+            <td>What capabilities does it require?</td>
+            <td><code>rpm -qp --requires FILE.rpm</code></td>
+            <td><code>rpm -q --requires PACKAGE_NAME</code></td>
+          </tr>
+          <tr>
+            <td>What capabilities does it provide?</td>
+            <td><code>rpm -qp --provides FILE.rpm</code></td>
+            <td><code>rpm -q --provides PACKAGE_NAME</code></td>
+          </tr>
+          <tr>
+            <td>What scripts run as root?</td>
+            <td><code>rpm -qp --scripts FILE.rpm</code></td>
+            <td><code>rpm -q --scripts PACKAGE_NAME</code></td>
+          </tr>
+          <tr>
+            <td>Show package metadata and signature</td>
+            <td><code>rpm -qip FILE.rpm</code></td>
+            <td><code>rpm -qi PACKAGE_NAME</code></td>
+          </tr>
+          <tr>
+            <td>Who owns this file?</td>
+            <td><em>N/A</em></td>
+            <td><code>rpm -qf /path/to/file</code></td>
+          </tr>
+          <tr>
+            <td>Who needs / depends on this?</td>
+            <td><em>N/A</em></td>
+            <td><code>rpm -q --whatrequires CAPABILITY</code></td>
+          </tr>
+          <tr>
+            <td>Who provides this capability?</td>
+            <td><code>zypper se --provides --match-exact CAP</code><br><code>dnf provides CAP</code></td>
+            <td><code>rpm -q --whatprovides CAPABILITY</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Integrity Verification &amp; Safe Removal</h3>
+      <p>Audit installed packages against the RPM database digests and simulate removals without modifying the system:</p>
+
+      <pre><code># Verify installed files against database digests, permissions, and timestamps
+$ rpm -V ocio
+
+# Test removal to check for broken dependencies without actually uninstalling (dry-run)
+$ rpm -e --test libglvnd</code></pre>
+
+      <h2>2. Binary Inspection &amp; Dynamic Linking (ld.so)</h2>
+      <p>Commands used to inspect ELF executables, shared library dependencies, and loader behavior:</p>
+
+      <pre><code># Inspect dynamic shared library requirements and resolved paths
+$ ldd ./ocio
+
+# Read dynamic section tags (DT_NEEDED, RPATH, RUNPATH)
+$ readelf -d ./ocio
+
+# Filter only shared libraries required by the binary
+$ readelf -d ./ocio | grep NEEDED
+
+# Check exit status of a failed binary (e.g. 127 = dynamic linker could not find a library)
+$ ./ocio; echo $?
+
+# Check ELF architecture, ABI, and dynamic interpreter (PT_INTERP)
+$ file ./ocio</code></pre>
+
+      <div class="note-box">
+        <strong>Runtime vs Package:</strong> <code>ldd</code> inspects what the dynamic linker (<code>ld.so</code>) sees on the running host. <code>rpm -qp --requires</code> inspects what the package metadata declared at build time. When a package is properly built, the package requirements match the ELF <code>DT_NEEDED</code> list.
+      </div>
+
+      <h2>3. Archive Extraction &amp; Payload Inspection</h2>
+      <p>How to inspect and unpack package payloads without installing them to the root filesystem:</p>
+
+      <pre><code># Extract an RPM payload directly into the current directory
+$ rpm2cpio ocio-0.1.0-1.x86_64.rpm | cpio -idmv
+
+# Verify archive format of the RPM payload stream
+$ rpm2cpio ocio-0.1.0-1.x86_64.rpm | file -
+
+# Query payload format and compressor used in the RPM
+$ rpm -qp --qf '%{PAYLOADFORMAT} %{PAYLOADCOMPRESSOR}\n' ocio-0.1.0-1.x86_64.rpm
+
+# Alternative direct extraction using bsdtar (libarchive)
+$ bsdtar -tf ocio-0.1.0-1.x86_64.rpm
+$ bsdtar -xf ocio-0.1.0-1.x86_64.rpm
+
+# Inspect Debian package (.deb) members (ar archive containing control.tar and data.tar)
+$ ar -t ocio_0.1.0_amd64.deb
+$ ar -x ocio_0.1.0_amd64.deb</code></pre>
+
+      <h2>4. Repository &amp; Package Manager Operations</h2>
+      <p>Commands for dependency resolution and package operations across openSUSE, Fedora, and Debian:</p>
+
+      <pre><code># openSUSE (Zypper / libsolv)
+# Search repository for package providing an exact symbol or capability
+$ zypper se --provides --match-exact 'libOpenGL.so.0()(64bit)'
+
+# Query requirements of an upstream package before installation
+$ zypper info --requires libglvnd
+
+# Install local RPM resolving transitive dependencies from repos
+$ sudo zypper in /path/to/ocio-0.1.0-1.x86_64.rpm
+
+# Bypass GPG signature check for untrusted or experimental local packages
+$ sudo zypper in --allow-unsigned-rpm /path/to/ocio-0.1.0-1.x86_64.rpm
+
+# Fedora / RHEL (DNF / libdnf)
+# Search repository for package providing a file or capability
+$ dnf provides 'libOpenGL.so.0()(64bit)'
+
+# Install local RPM resolving remote dependencies
+$ sudo dnf install /path/to/ocio-0.1.0-1.x86_64.rpm
+
+# Debian / Ubuntu (APT)
+# Install local DEB package resolving remote dependencies
+$ sudo apt-get install /path/to/ocio_0.1.0_amd64.deb</code></pre>
+
+      <h2>5. Container &amp; Sandbox Testing</h2>
+      <p>Commands used to test binaries, packages, and sandboxes in clean environments:</p>
+
+      <pre><code># Test raw binary in a pristine, vanilla openSUSE Tumbleweed container (fails due to missing libs)
+$ podman run --rm -v ./build/bin/ocio:/ocio:ro,Z registry.opensuse.org/opensuse/tumbleweed:latest /ocio
+
+# Test RPM package installation and execution in a pristine vanilla container
+$ podman run --rm -v "$PWD/dist/ocio-0.1.0-1.x86_64.rpm:/ocio.rpm:ro,Z" \
+    registry.opensuse.org/opensuse/tumbleweed:latest \
+    sh -c "zypper --non-interactive in --allow-unsigned-rpm /ocio.rpm && ocio --version"
+
+# Extract AppImage payload without FUSE (inspect internal SquashFS)
+$ ./ocio-x86_64.AppImage --appimage-extract
+
+# Build and export Flatpak bundle
+$ flatpak-builder --force-clean build-dir packaging/flatpak/org.packathon.ocio.yml
+$ flatpak-builder --export-bundle repo ocio.flatpak org.packathon.ocio
+
+# Run application inside Podman with X11 and DRI GPU pass-through
+$ podman run --rm -it --net=host --ipc=host \
+    -e DISPLAY=$DISPLAY \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+    --device /dev/dri \
+    localhost/packathon-opensuse:runtime</code></pre>
+    </main>
+  </body>
+</html>
