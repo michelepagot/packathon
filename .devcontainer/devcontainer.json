@@ -1,11 +1,13 @@
 {
   "name": "Packathon Packaging Lab",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "runArgs": [
+    "--privileged"
+  ],
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/devcontainers/features/common-utils:2": {}
   },
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y build-essential cmake rpm rpm2cpio dpkg-dev binutils file tree libarchive-tools ttyd && docker pull registry.opensuse.org/opensuse/tumbleweed:latest || true",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
   "forwardPorts": [7681],
   "portsAttributes": {
     "7681": {
