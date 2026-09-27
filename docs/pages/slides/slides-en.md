@@ -160,6 +160,55 @@ Systems reality:
 
 ---
 
+## Launch
+
+`$ ocio`
+
+1. **Shell**: `$PATH` lookup &rarr; `/usr/bin/ocio` <small>(`command -v ocio`)</small>
+2. **Kernel**: `execve()` &rarr; `PT_INTERP` &rarr; `ld.so`
+3. **ld.so**: `DT_NEEDED` &rarr; `/lib64/libOpenGL.so.0` found
+4. `main()`
+
+
+Note:
+Answer the question explicitly: what does the OS do when we run an app installed by an RPM? Nothing special.
+- The shell finds the binary through $PATH (/usr/bin is always there).
+- The kernel loads it and hands control to the dynamic linker, exactly like in the failed run.
+- The only difference: this time the files exist, because the package manager put them there beforehand.
+- RPM is an installer and a bookkeeper, not a runtime. After installation it leaves the scene.
+The last question is the bridge to the next section: with AppImage and Flatpak, someone else is present at launch (a FUSE mount, a sandbox).
+
+---
+
+## Following libOpenGL.so.0
+
+```text
+$ readelf -d ocio | grep OpenGL
+ (NEEDED)  Shared library: [libOpenGL.so.0]
+```
+
+```text
+$ rpm -qp --requires ocio-0.1.0-1.x86_64.rpm | grep OpenGL
+libOpenGL.so.0()(64bit)
+```
+<!-- .element: class="fragment" -->
+
+<p class="fragment text-info" style="margin-top: 30px;">
+<strong>486 KB</strong> package &rarr; <strong>36</strong> packages &rarr; <strong>52.6 MiB</strong> download
+</p>
+
+Note:
+Follow one single string from the error message down to the repository.
+1. The binary says: I need libOpenGL.so.0.
+2. The package repeats it, in a form the package manager can query.
+3. The repository answers: libglvnd provides it. The name from the error message now has an owner.
+4. But libglvnd has its own requirements (libX11, Mesa-dri), which have their own, and so on.
+Result on a vanilla Tumbleweed container: 36 new packages (ocio included), 52.6 MiB of downloads, for a 486 KB package.
+One sentence on the solver, no more: "Some requirements have alternative providers; choosing one consistent set among tens of thousands of packages is a logic problem (SAT), and zypper solves it in milliseconds with libsolv." Deep dive only if asked in Q&A.
+Note for Fedora users: the equivalent of zypper se --provides is dnf provides.
+
+---
+
 ## Formats
 
 | Target | Mechanism |
@@ -270,35 +319,6 @@ Header, on the fragment:
 
 ---
 
-## Following libOpenGL.so.0
-
-```text
-$ readelf -d ocio | grep OpenGL                                  # the binary
- (NEEDED)  Shared library: [libOpenGL.so.0]
-```
-
-```text
-$ rpm -qp --requires ocio-0.1.0-1.x86_64.rpm | grep OpenGL        # the package
-libOpenGL.so.0()(64bit)
-```
-<!-- .element: class="fragment" -->
-
-<p class="fragment text-info" style="margin-top: 30px;">
-<strong>486 KB</strong> package &rarr; <strong>36</strong> packages &rarr; <strong>52.6 MiB</strong> download
-</p>
-
-Note:
-Follow one single string from the error message down to the repository.
-1. The binary says: I need libOpenGL.so.0.
-2. The package repeats it, in a form the package manager can query.
-3. The repository answers: libglvnd provides it. The name from the error message now has an owner.
-4. But libglvnd has its own requirements (libX11, Mesa-dri), which have their own, and so on.
-Result on a vanilla Tumbleweed container: 36 new packages (ocio included), 52.6 MiB of downloads, for a 486 KB package.
-One sentence on the solver, no more: "Some requirements have alternative providers; choosing one consistent set among tens of thousands of packages is a logic problem (SAT), and zypper solves it in milliseconds with libsolv." Deep dive only if asked in Q&A.
-Note for Fedora users: the equivalent of zypper se --provides is dnf provides.
-
----
-
 ## Demo rpm
 
 RPM installation in a *vanilla* openSUSE Tumbleweed container:
@@ -368,33 +388,6 @@ Right: installing is copying files plus keeping a record.
 - rpm -qf: every file on the system has a known owner.
 - rpm -V: verifies installed files against the digests in the database. Optional live moment: append a byte to ocio.desktop and rerun, output becomes "S.5....T. /usr/share/applications/ocio.desktop" (Size, digest (5), mTime changed).
 - rpm -e --test: the database refuses to remove a library that others still need. This is what keeps the system from breaking.
-
----
-
-## Launch
-
-`$ ocio`
-
-1. **Shell**: `$PATH` lookup &rarr; `/usr/bin/ocio` <small>(`command -v ocio`)</small>
-2. **Kernel**: `execve()` &rarr; `PT_INTERP` &rarr; `ld.so`
-3. **ld.so**: `DT_NEEDED` &rarr; `/lib64/libOpenGL.so.0` found
-4. `main()`
-
-<p class="fragment" style="margin-top: 25px;">
-Same path as the failed run. The package manager is <strong>not involved</strong> at launch.
-</p>
-
-<p class="fragment text-info" style="margin-top: 15px;">
-<em>Who else is present when the application starts?</em>
-</p>
-
-Note:
-Answer the question explicitly: what does the OS do when we run an app installed by an RPM? Nothing special.
-- The shell finds the binary through $PATH (/usr/bin is always there).
-- The kernel loads it and hands control to the dynamic linker, exactly like in the failed run.
-- The only difference: this time the files exist, because the package manager put them there beforehand.
-- RPM is an installer and a bookkeeper, not a runtime. After installation it leaves the scene.
-The last question is the bridge to the next section: with AppImage and Flatpak, someone else is present at launch (a FUSE mount, a sandbox).
 
 ---
 

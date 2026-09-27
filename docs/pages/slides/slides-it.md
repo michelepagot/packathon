@@ -160,6 +160,55 @@ La realta' sistemistica:
 
 ---
 
+## Avvio
+
+`$ ocio`
+
+1. **Shell**: ricerca in `$PATH` &rarr; `/usr/bin/ocio` <small>(`command -v ocio`)</small>
+2. **Kernel**: `execve()` &rarr; `PT_INTERP` &rarr; `ld.so`
+3. **ld.so**: `DT_NEEDED` &rarr; `/lib64/libOpenGL.so.0` trovato
+4. `main()`
+
+
+Note:
+Rispondere esplicitamente alla domanda: cosa fa l'OS quando eseguiamo un'app installata da un RPM? Niente di speciale.
+- La shell trova il binario attraverso $PATH (/usr/bin e' sempre presente).
+- Il kernel lo carica e passa il controllo al dynamic linker, esattamente come nell'esecuzione fallita.
+- L'unica differenza: questa volta i file esistono, perche' il package manager li ha posizionati in precedenza.
+- RPM e' un installer e un contabile, non un runtime. Dopo l'installazione esce di scena.
+L'ultima domanda e' il ponte verso la sezione successiva: con AppImage e Flatpak, qualcun altro e' presente all'avvio (un mount FUSE, una sandbox).
+
+---
+
+## Seguendo libOpenGL.so.0
+
+```text
+$ readelf -d ocio | grep OpenGL
+ (NEEDED)  Shared library: [libOpenGL.so.0]
+```
+
+```text
+$ rpm -qp --requires ocio-0.1.0-1.x86_64.rpm | grep OpenGL
+libOpenGL.so.0()(64bit)
+```
+<!-- .element: class="fragment" -->
+
+<p class="fragment text-info" style="margin-top: 30px;">
+<strong>486 KB</strong> di pacchetto &rarr; <strong>36</strong> pacchetti &rarr; <strong>52.6 MiB</strong> di download
+</p>
+
+Note:
+Seguiamo una singola stringa dal messaggio di errore fino al repository.
+1. Il binario dice: ho bisogno di libOpenGL.so.0.
+2. Il pacchetto lo ripete, in una forma che il package manager puo' interrogare.
+3. Il repository risponde: libglvnd lo fornisce. Il nome dal messaggio di errore ora ha un proprietario.
+4. Ma libglvnd ha i suoi requisiti (libX11, Mesa-dri), che hanno i loro, e cosi' via.
+Risultato su un container Tumbleweed vanilla: 36 nuovi pacchetti (incluso ocio), 52.6 MiB di download, per un pacchetto di 486 KB.
+Una frase sul solver, non di piu': "Alcuni requisiti hanno fornitori alternativi; scegliere un insieme coerente tra decine di migliaia di pacchetti e' un problema logico (SAT), e zypper lo risolve in millisecondi con libsolv." Approfondimento solo se richiesto nel Q&A.
+Nota per utenti Fedora: l'equivalente di zypper se --provides e' dnf provides.
+
+---
+
 ## Formati
 
 | Target | Meccanismo |
@@ -270,35 +319,6 @@ Header, sul fragment:
 
 ---
 
-## Seguendo libOpenGL.so.0
-
-```text
-$ readelf -d ocio | grep OpenGL                                  # il binario
- (NEEDED)  Shared library: [libOpenGL.so.0]
-```
-
-```text
-$ rpm -qp --requires ocio-0.1.0-1.x86_64.rpm | grep OpenGL        # il pacchetto
-libOpenGL.so.0()(64bit)
-```
-<!-- .element: class="fragment" -->
-
-<p class="fragment text-info" style="margin-top: 30px;">
-<strong>486 KB</strong> di pacchetto &rarr; <strong>36</strong> pacchetti &rarr; <strong>52.6 MiB</strong> di download
-</p>
-
-Note:
-Seguiamo una singola stringa dal messaggio di errore fino al repository.
-1. Il binario dice: ho bisogno di libOpenGL.so.0.
-2. Il pacchetto lo ripete, in una forma che il package manager puo' interrogare.
-3. Il repository risponde: libglvnd lo fornisce. Il nome dal messaggio di errore ora ha un proprietario.
-4. Ma libglvnd ha i suoi requisiti (libX11, Mesa-dri), che hanno i loro, e cosi' via.
-Risultato su un container Tumbleweed vanilla: 36 nuovi pacchetti (incluso ocio), 52.6 MiB di download, per un pacchetto di 486 KB.
-Una frase sul solver, non di piu': "Alcuni requisiti hanno fornitori alternativi; scegliere un insieme coerente tra decine di migliaia di pacchetti e' un problema logico (SAT), e zypper lo risolve in millisecondi con libsolv." Approfondimento solo se richiesto nel Q&A.
-Nota per utenti Fedora: l'equivalente di zypper se --provides e' dnf provides.
-
----
-
 ## Demo rpm
 
 Installazione RPM in container openSUSE Tumbleweed *vanilla*:
@@ -366,35 +386,8 @@ Note:
 A sinistra: lo stesso ldd della slide Dipendenze. Ogni "not found" ora e' un percorso in /lib64. Il loader segue anche le dipendenze delle librerie stesse (libGLdispatch, libX11, libxcb).
 A destra: installare significa copiare file piu' tenere traccia.
 - rpm -qf: ogni file sul sistema ha un proprietario noto.
-- rpm -V: verifica i file installati rispetto ai digest nel database. Momento live facoltativo: aggiungere un byte a ocio.desktop e rieseguire, l'output diventa "S.5....T. /usr/share/applications/ocio.desktop" (Size, digest (5), mTime modificati).
+- rpm -V: verifica i file installati rispetto ai digest nel database. Momento live facoltativo: aggiungere un byte a ocio.desktop e rieseguire, loutput diventa "S.5....T. /usr/share/applications/ocio.desktop" (Size, digest (5), mTime modificati).
 - rpm -e --test: il database rifiuta di rimuovere una libreria di cui altri hanno ancora bisogno. Questo e' cio' che impedisce al sistema di rompersi.
-
----
-
-## Avvio
-
-`$ ocio`
-
-1. **Shell**: ricerca in `$PATH` &rarr; `/usr/bin/ocio` <small>(`command -v ocio`)</small>
-2. **Kernel**: `execve()` &rarr; `PT_INTERP` &rarr; `ld.so`
-3. **ld.so**: `DT_NEEDED` &rarr; `/lib64/libOpenGL.so.0` trovato
-4. `main()`
-
-<p class="fragment" style="margin-top: 25px;">
-Stesso percorso dell'esecuzione fallita. Il package manager <strong>non interviene</strong> all'avvio.
-</p>
-
-<p class="fragment text-info" style="margin-top: 15px;">
-<em>Chi altro è presente quando l'applicazione parte?</em>
-</p>
-
-Note:
-Rispondere esplicitamente alla domanda: cosa fa l'OS quando eseguiamo un'app installata da un RPM? Niente di speciale.
-- La shell trova il binario attraverso $PATH (/usr/bin e' sempre presente).
-- Il kernel lo carica e passa il controllo al dynamic linker, esattamente come nell'esecuzione fallita.
-- L'unica differenza: questa volta i file esistono, perche' il package manager li ha posizionati in precedenza.
-- RPM e' un installer e un contabile, non un runtime. Dopo l'installazione esce di scena.
-L'ultima domanda e' il ponte verso la sezione successiva: con AppImage e Flatpak, qualcun altro e' presente all'avvio (un mount FUSE, una sandbox).
 
 ---
 
@@ -408,7 +401,7 @@ L'ultima domanda e' il ponte verso la sezione successiva: con AppImage e Flatpak
 #### Vantaggi
 
 * Payload minimo: 486 KB (52.6 MiB delegati).
-* Librerie condivise: un solo <code>libglvnd</code>, patchato una volta per ogni app.
+* Librerie condivise: un solo <code>libglvnd</code> per ogni app.
 * Proprietà &amp; verifica: <code>rpm -qf</code>, <code>rpm -V</code>.
 
 </div>
