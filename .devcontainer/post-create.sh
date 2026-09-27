@@ -50,4 +50,8 @@ fi
 echo "==> Pre-pulling openSUSE Tumbleweed container image with Podman..."
 podman pull registry.opensuse.org/opensuse/tumbleweed:latest || true
 
+echo "==> Pre-pulling official Packathon runtime images from GHCR..."
+podman pull ghcr.io/michelepagot/packathon/opensuse:latest || true
+podman pull ghcr.io/michelepagot/packathon/debian:latest || true
+
 echo "==> DevContainer post-create setup complete."
