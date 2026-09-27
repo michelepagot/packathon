@@ -13,6 +13,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.0.4/plugin/highlight/monokai.min.css">
 
     <style>
+      /* Top navigation overlay bar: fixed full-width header positioning back-link and language switcher.
+         pointer-events: none ensures transparent pass-through for mouse interactions over the slides. */
       .top-nav {
         position: fixed;
         top: 15px;
@@ -26,6 +28,9 @@
         font-size: 14px;
         pointer-events: none;
       }
+
+      /* Interactive controls in top bar (home link and language toggle buttons).
+         pointer-events: auto restores clickability; styled as semi-transparent frosted pills. */
       .top-nav a,
       .top-nav button {
         pointer-events: auto;
@@ -39,16 +44,22 @@
         font-size: 13px;
         cursor: pointer;
       }
+
+      /* Hover state for top bar controls: increases background opacity and border contrast for visual feedback. */
       .top-nav a:hover,
       .top-nav button:hover {
         color: #fff;
         background: rgba(0, 0, 0, 0.75);
         border-color: rgba(255, 255, 255, 0.4);
       }
+
+      /* Language toggle container: flex wrapper managing horizontal spacing between locale buttons. */
       .lang-switcher {
         display: flex;
         gap: 6px;
       }
+
+      /* Active language indicator: highlights the currently selected locale with accent blue background and bold weight. */
       .lang-btn.active {
         color: #fff;
         background: rgba(3, 102, 214, 0.75);
@@ -56,13 +67,13 @@
         font-weight: 600;
       }
 
-      /* Cardboard box scene in the lower-left quarter */
+      /* Cardboard box scene in the lower-right quarter */
       #artCanvas {
         position: fixed;
         bottom: 0;
-        left: 0;
-        width: 50vw;
-        height: 50vh;
+        right: 0;
+        width: 40vw;
+        height: 40vh;
         z-index: 1;
         pointer-events: none;
       }
@@ -70,6 +81,93 @@
       /* Ensure slide content appears on top of the background canvas */
       .reveal .slides {
         z-index: 2;
+      }
+
+      /* Slide layout and typographic normalization */
+      .reveal .slides section {
+        text-align: left;
+      }
+
+      .reveal .text-center,
+      .reveal .slides section:first-child,
+      .reveal .slides section.text-center,
+      .reveal .slides section.center {
+        text-align: center;
+      }
+
+      /* Multi-column layout */
+      .reveal .grid-2 {
+        display: flex;
+        gap: 35px;
+        align-items: flex-start;
+      }
+
+      .reveal .grid-2 > * {
+        flex: 1;
+        min-width: 0;
+      }
+
+      /* Centered media/card blocks */
+      .reveal .center-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 15px;
+        margin-top: 30px;
+      }
+
+      /* Semantic highlight colors */
+      .reveal .text-muted   { color: #9ca3af; }
+      .reveal .text-warn    { color: #ffb74d; }
+      .reveal .text-info    { color: #4fc3f7; }
+      .reveal .text-success { color: #81c784; }
+      .reveal .text-danger  { color: #e57373; }
+
+      /* Visual accent boxes */
+      .reveal .box-success {
+        border-left: 3px solid #81c784;
+        padding-left: 15px;
+      }
+
+      .reveal .box-danger {
+        border-left: 3px solid #e57373;
+        padding-left: 15px;
+      }
+
+      .reveal .callout {
+        background: rgba(255, 255, 255, 0.05);
+        border-left: 4px solid #4fc3f7;
+        padding: 15px 20px;
+        border-radius: 6px;
+        margin-top: 20px;
+      }
+
+      /* Table and pre/code formatting */
+      .reveal table {
+        font-size: 0.82em;
+        width: 100%;
+        margin: 20px 0;
+        border-collapse: collapse;
+      }
+
+      .reveal table th,
+      .reveal table td {
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+      }
+
+      .reveal pre {
+        width: 100%;
+        margin: 15px 0;
+        box-shadow: none;
+        font-size: 0.68em;
+      }
+
+      .reveal pre code {
+        padding: 12px;
+        border-radius: 6px;
+        max-height: 520px;
       }
 
       /* Hide navigation in speaker-view receiver preview iframes */
@@ -87,7 +185,7 @@
       </div>
     </header>
 
-    <!-- Background procedural cardboard box canvas (lower-left 1/4) -->
+    <!-- Background procedural cardboard box canvas (lower-right 1/4) -->
     <canvas id="artCanvas"></canvas>
 
     <div class="reveal">
@@ -110,26 +208,14 @@
     <!-- Procedural Cardboard Box Engine -->
     <script src="box-art.js"></script>
 
-    <!-- Live Terminal Resolver & Launcher -->
-    <script src="live-terminal.js"></script>
-
     <script>
-      // Determine language: URL param > localStorage > Browser default > 'en'
+      // Determine language: URL param (?lang=it) or default to 'en'
       const urlParams = new URLSearchParams(window.location.search);
-      let currentLang = urlParams.get('lang');
+      const currentLang = urlParams.get('lang') === 'it' ? 'it' : 'en';
 
       // Check for speaker-view receiver mode
       if (urlParams.has('receiver')) {
         document.body.classList.add('receiver');
-      }
-
-      if (!currentLang || (currentLang !== 'it' && currentLang !== 'en')) {
-        const storedLang = localStorage.getItem('packathon_slide_lang');
-        if (storedLang === 'it' || storedLang === 'en') {
-          currentLang = storedLang;
-        } else {
-          currentLang = (navigator.language && navigator.language.toLowerCase().startsWith('it')) ? 'it' : 'en';
-        }
       }
 
       // Configure dynamic markdown source
@@ -143,7 +229,6 @@
       // Switch language function (preserves current slide hash)
       function switchLanguage(newLang) {
         if (newLang === currentLang) return;
-        localStorage.setItem('packathon_slide_lang', newLang);
         const url = new URL(window.location.href);
         url.searchParams.set('lang', newLang);
         window.location.href = url.toString();

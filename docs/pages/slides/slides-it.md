@@ -2,7 +2,7 @@
 
 ### Packaging e Distribuzione Software su Linux
 
-<p style="color: #888; font-size: 0.7em; margin-top: 30px;">Linux Day Trieste 2026</p>
+<p class="text-muted" style="margin-top: 30px;">Linux Day Trieste 2026</p>
 
 Note:
 Lasciare ocio in esecuzione su un secondo schermo o finestra.
@@ -15,11 +15,12 @@ Estrarre il floppy disk da 3.5 pollici dalla borsa:
 
 ---
 
-## Slide
+## Slides
+<!-- .slide: class="text-center" -->
 
-<div style="margin-top: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;">
-  <img src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=https://michelepagot.github.io/packathon/" alt="QR Code Slide" style="border-radius: 12px; border: 3px solid rgba(255,255,255,0.4);" />
-  <p style="font-size: 0.85em;"><a href="https://michelepagot.github.io/packathon/" target="_blank">michelepagot.github.io/packathon</a></p>
+<div class="center-card">
+  <img src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&amp;data=https://michelepagot.github.io/packathon/" alt="QR Code Slide" style="border-radius: 12px; border: 3px solid rgba(255,255,255,0.4);" />
+  <p><a href="https://michelepagot.github.io/packathon/" target="_blank">michelepagot.github.io/packathon</a></p>
 </div>
 
 Note:
@@ -29,24 +30,16 @@ Pausa per permettere al pubblico di inquadrare il QR code.
 
 ## Speaker
 
-<div style="margin-top: 40px; font-size: 1.1em; line-height: 1.8;">
-
 * **Michele Pagot**
 * **SUSE**: Quality Engineering (QE)
 * GitHub: [`@michelepagot`](https://github.com/michelepagot) · [`@mpagot`](https://github.com/mpagot)
-
-</div>
 
 ---
 
 ## Disclaimer
 
-<div style="font-size: 0.85em; text-align: left; margin-top: 30px; line-height: 1.8;">
-
 * Non sono un package maintainer di professione.
-* Indagine ingegneristica sui vincoli del packaging a monte prima dei banchi di test.
-
-</div>
+* Lavoro in QE...
 
 Note:
 "Non sono un package maintainer di professione. Lavoro all'estremità della pipeline: test, validazione e analisi degli output di rilascio su sistemi completi. Questo talk nasce per capire cosa succede a monte prima che il software arrivi sui nostri banchi di test."
@@ -55,10 +48,8 @@ Note:
 
 ## Agenda
 
-<!-- .slide: style="font-size: 0.68em;" -->
-
-<div style="display: flex; gap: 50px; text-align: left; max-width: 900px; margin: 30px auto 0 auto; line-height: 1.8;">
-<div style="flex: 1;">
+<div class="grid-2">
+<div>
 
 1. **Censimento**
 2. **Prospettive**
@@ -67,7 +58,7 @@ Note:
 5. **Delega**: RPM &amp; DEB *(Demo)*
 
 </div>
-<div style="flex: 1;">
+<div>
 
 6. **AppImage**, **Flatpak**, **Permessi**
 7. **Rilascio** &amp; **Aggiornamenti**
@@ -81,17 +72,11 @@ Note:
 
 ## Censimento
 
-<!-- .slide: style="font-size: 0.88em;" -->
-
-<ol style="line-height: 1.8;">
-  <li class="fragment">Chi usa Linux quotidianamente?</li>
-  <li class="fragment">Chi usa esclusivamente i repository ufficiali?<br>
-  <small style="color: #aaa;">(APT, Zypper, DNF, Pacman, AUR... Emerge, Slackpkg, urpmi)</small></li>
-  <li class="fragment">Chi usa formati universali: Flatpak, AppImage o Snap?</li>
-  <li class="fragment"><code>curl | sh</code></li>
-  <li class="fragment">Chi compila regolarmente da sorgenti?<br>
-  <small style="color: #aaa;">(<code>git clone &amp;&amp; cmake &amp;&amp; make &amp;&amp; sudo make install</code>)</small></li>
-</ol>
+1. Chi usa Linux quotidianamente? <!-- .element: class="fragment" -->
+2. Chi installa software esclusivamente tramite repository ufficiali? <!-- .element: class="fragment" --> <br><small class="text-muted">(APT, Zypper, DNF, Pacman, AUR... Emerge, Slackpkg, urpmi)</small>
+3. Chi usa formati universali: Flatpak, AppImage o Snap? <!-- .element: class="fragment" -->
+4. <!-- .element: class="fragment" --> `curl | sh`
+5. Chi compila regolarmente da sorgenti? <!-- .element: class="fragment" --> <br><small class="text-muted">(<code>git clone &amp;&amp; cmake &amp;&amp; make &amp;&amp; sudo make install</code>)</small>
 
 Note:
 Scandire le 5 domande guardando la sala:
@@ -105,16 +90,12 @@ Scandire le 5 domande guardando la sala:
 
 ## Prospettive
 
-<div style="font-size: 1.2em; line-height: 2.2; margin-top: 40px; text-align: left; max-width: 500px; margin-left: auto; margin-right: auto;">
-
-* **Utilizzatore**
-* **Sviluppatore**
-* **Maintainer**
-
-</div>
+* <!-- .element: class="fragment" --> Utilizzatore
+* <!-- .element: class="fragment" --> Sviluppatore
+* <!-- .element: class="fragment" --> Maintainer
 
 Note:
-Presentare le tre prospettive una alla volta tramite i fragment:
+Presentare le tre prospettive una alla volta:
 
 1. L'Utilizzatore (punto di partenza comune: vuole semplicemente l'applicazione):
 - Ma le necessita' interne sono divergenti: c'e' chi vuole una versione rocciosa e stabile per lavorare senza sorprese, e chi pretende l'ultimissima release con le novita' del giorno zero.
@@ -144,22 +125,13 @@ Raccordo verso il resto del talk:
 
 ## Dipendenze
 
-> *"Sul mio computer (compila e) va"*
-
-<div style="font-size: 0.78em; text-align: left; margin-top: 25px;">
-
-<div class="fragment">
+> *"Sul mio computer va"*
 
 ```text
 /ocio: error while loading shared libraries: libOpenGL.so.0:
 cannot open shared object file: No such file or directory
-$ echo $?
-127
 ```
-
-</div>
-
-<div class="fragment" style="margin-top: 20px;">
+<!-- .element: class="fragment" -->
 
 ```text
 $ ldd ./ocio
@@ -170,12 +142,11 @@ $ ldd ./ocio
     libc.so.6 => /lib64/libc.so.6 (0x00007f9c8f0b0000)
     /lib64/ld-linux-x86-64.so.2 (0x00007f9c8f3b0000)
 ```
-
-</div>
-
-</div>
+<!-- .element: class="fragment" -->
 
 Note:
+Ask the audience the exist code: 127
+
 Comando di test in container minimale:
 $ podman run --rm -v ./build/bin/ocio:/ocio:ro,Z registry.opensuse.org/opensuse/tumbleweed:latest /ocio
 
@@ -191,8 +162,6 @@ La realta' sistemistica:
 
 ## Formati
 
-<div style="font-size: 0.82em; margin-top: 30px;">
-
 | Target | Meccanismo |
 |---|---|
 | **Standalone Tarball** | Archivio compresso (`.tar.gz`) con asset e `.desktop` |
@@ -200,32 +169,25 @@ La realta' sistemistica:
 | **Debian (`.deb`)** | Archivio `ar` standard via CPack |
 | **AppImage** | File unico con SquashFS montato via FUSE |
 | **Flatpak** | Sandbox Bubblewrap su runtime Freedesktop |
-| **Container OCI** | Immagine userspace completa eseguita da Podman |
 | **Compilazione sorgente** | Matrice CMake controllata (`FETCH`, `SYSTEM`, `LOCAL`) |
-
-</div>
 
 ---
 
 ## Dentro un RPM
 
-<div style="font-size: 0.6em; text-align: left; margin-top: 15px;">
-
 ```text
 $ file ocio-0.1.0-1.x86_64.rpm
 ocio-0.1.0-1.x86_64.rpm: RPM v3.0 bin i386/x86_64
 ```
-
+<!-- .element: class="fragment" -->
 ```text
 +--------+-------------+-------------+------------------------------+
 | Lead   | Signature   | Header      | Payload                      |
-| magic  | digest,     | nome, deps, | archivio cpio, zstd          |
-|        | GPG (none)  | elenco file | i file effettivi             |
+| magic  | digests,    | name, deps, | cpio archive, zstd           |
+|        | GPG (none)  | file list   | the files                    |
 +--------+-------------+-------------+------------------------------+
 ```
-
-<div class="fragment">
-
+<!-- .element: class="fragment" -->
 ```text
 $ rpm2cpio ocio-0.1.0-1.x86_64.rpm | file -
 /dev/stdin: ASCII cpio archive (SVR4 with no CRC)
@@ -233,10 +195,9 @@ $ rpm2cpio ocio-0.1.0-1.x86_64.rpm | cpio -idmv
 ./usr/bin/ocio
 ./usr/share/applications/ocio.desktop
 ...
-```
 
-</div>
-</div>
+```
+<!-- .element: class="fragment" -->
 
 Note:
 file identifica il formato dai byte magici (ed ab ee db): "RPM v3.0" e' il formato lead legacy, ancora scritto da rpm moderno per compatibilita'.
@@ -261,9 +222,10 @@ Messaggio chiave: estrarre significa solo copiare file. Nessun controllo di dipe
 
 ## Dentro un RPM
 
-<div style="display: flex; gap: 20px; font-size: 0.6em; margin-top: 20px; text-align: left;">
-<div style="flex: 1;">
-<h4>Payload: file</h4>
+<div class="grid-2">
+<div>
+
+#### Payload: file
 
 ```text
 $ rpm -qlp ocio-0.1.0-1.x86_64.rpm
@@ -275,8 +237,9 @@ $ rpm -qlp ocio-0.1.0-1.x86_64.rpm
 ```
 
 </div>
-<div class="fragment" style="flex: 1;">
-<h4>Header: metadati</h4>
+<div class="fragment">
+
+#### Header: metadati
 
 ```text
 $ rpm -qp --requires ocio-0.1.0-1.x86_64.rpm
@@ -309,24 +272,18 @@ Header, sul fragment:
 
 ## Seguendo libOpenGL.so.0
 
-<div style="font-size: 0.7em; text-align: left; margin-top: 25px;">
-
 ```text
 $ readelf -d ocio | grep OpenGL                                  # il binario
  (NEEDED)  Shared library: [libOpenGL.so.0]
 ```
 
-<div class="fragment" style="margin-top: 20px;">
-
 ```text
 $ rpm -qp --requires ocio-0.1.0-1.x86_64.rpm | grep OpenGL        # il pacchetto
 libOpenGL.so.0()(64bit)
 ```
+<!-- .element: class="fragment" -->
 
-</div>
-</div>
-
-<p class="fragment" style="margin-top: 30px; font-size: 0.85em;">
+<p class="fragment text-info" style="margin-top: 30px;">
 <strong>486 KB</strong> di pacchetto &rarr; <strong>36</strong> pacchetti &rarr; <strong>52.6 MiB</strong> di download
 </p>
 
@@ -352,12 +309,9 @@ $ podman run --rm -v "$PWD/dist/ocio-0.1.0-1.x86_64.rpm:/ocio.rpm:ro,Z" \
     sh -c "zypper --non-interactive in --allow-unsigned-rpm /ocio.rpm && ocio --version"
 ```
 
-<p style="margin-top: 25px; font-size: 0.85em; text-align: left; color: #ffb74d;">* <code>--allow-unsigned-rpm</code></p>
-
-<button class="terminal-btn" onclick="openLiveTerminal()">💻 Apri Terminale Live</button>
+<p class="text-warn" style="margin-top: 30px;">* <code>--allow-unsigned-rpm</code></p>
 
 Note:
-[Terminale Live]: Passare alla scheda del terminale a tutto schermo con Ctrl+Tab (o Alt+Tab).
 Eseguire la demo live o mostrare il comando a terminale.
 Cosa fa zypper, in ordine (visibile nel suo output):
 - Resolve: calcola i 36 pacchetti.
@@ -371,9 +325,10 @@ Dettaglio critico dell'asterisco: --allow-unsigned-rpm. rpm -qi ocio mostra "Sig
 
 ## Dopo l'installazione
 
-<div style="display: flex; gap: 20px; font-size: 0.58em; margin-top: 20px; text-align: left;">
-<div style="flex: 1;">
-<h4>Risolto</h4>
+<div class="grid-2">
+<div>
+
+#### Risolto
 
 ```text
 $ ldd /usr/bin/ocio
@@ -388,8 +343,9 @@ $ ldd /usr/bin/ocio
 ```
 
 </div>
-<div class="fragment" style="flex: 1;">
-<h4>Registrato</h4>
+<div class="fragment">
+
+#### Registrato
 
 ```text
 $ rpm -qf /usr/lib64/libOpenGL.so.0
@@ -417,8 +373,6 @@ A destra: installare significa copiare file piu' tenere traccia.
 
 ## Avvio
 
-<div style="font-size: 0.8em; text-align: left; margin-top: 25px;">
-
 `$ ocio`
 
 1. **Shell**: ricerca in `$PATH` &rarr; `/usr/bin/ocio` <small>(`command -v ocio`)</small>
@@ -426,13 +380,11 @@ A destra: installare significa copiare file piu' tenere traccia.
 3. **ld.so**: `DT_NEEDED` &rarr; `/lib64/libOpenGL.so.0` trovato
 4. `main()`
 
-</div>
-
-<p class="fragment" style="margin-top: 25px; font-size: 0.85em;">
+<p class="fragment" style="margin-top: 25px;">
 Stesso percorso dell'esecuzione fallita. Il package manager <strong>non interviene</strong> all'avvio.
 </p>
 
-<p class="fragment" style="margin-top: 15px; font-size: 0.85em; color: #4fc3f7;">
+<p class="fragment text-info" style="margin-top: 15px;">
 <em>Chi altro è presente quando l'applicazione parte?</em>
 </p>
 
@@ -450,22 +402,24 @@ L'ultima domanda e' il ponte verso la sezione successiva: con AppImage e Flatpak
 
 * **Filosofia**: Il pacchetto trasporta solo il payload; dipendenze delegate alla distribuzione.
 
-<div class="fragment" style="display: flex; gap: 20px; font-size: 0.78em; margin-top: 25px; text-align: left;">
-<div style="flex: 1; border-left: 3px solid #81c784; padding-left: 15px;">
-<h4>Vantaggi</h4>
-<ul>
-  <li>Payload minimo: 486 KB (52.6 MiB delegati).</li>
-  <li>Librerie condivise: un solo <code>libglvnd</code>, patchato una volta per ogni app.</li>
-  <li>Proprietà &amp; verifica: <code>rpm -qf</code>, <code>rpm -V</code>.</li>
-</ul>
+<div class="grid-2 fragment" style="margin-top: 25px;">
+<div class="box-success">
+
+#### Vantaggi
+
+* Payload minimo: 486 KB (52.6 MiB delegati).
+* Librerie condivise: un solo <code>libglvnd</code>, patchato una volta per ogni app.
+* Proprietà &amp; verifica: <code>rpm -qf</code>, <code>rpm -V</code>.
+
 </div>
-<div style="flex: 1; border-left: 3px solid #e57373; padding-left: 15px;">
-<h4>Vincoli</h4>
-<ul>
-  <li>Accoppiamento ABI: <code>libm.so.6(GLIBC_2.43)</code>.</li>
-  <li>Policy di packaging rigorose (FHS, <code>%files</code>, scriptlet).</li>
-  <li>Una build per ogni distro target.</li>
-</ul>
+<div class="box-danger">
+
+#### Vincoli
+
+* Accoppiamento ABI: <code>libm.so.6(GLIBC_2.43)</code>.
+* Policy di packaging rigorose (FHS, <code>%files</code>, scriptlet).
+* Una build per ogni distro target.
+
 </div>
 </div>
 
@@ -479,8 +433,6 @@ Riepilogo: ogni punto si riferisce a qualcosa che il pubblico ha appena visto.
 
 ## DEB
 
-<div style="font-size: 0.6em; text-align: left; margin-top: 15px;">
-
 ```text
 $ file ocio_0.1.0_amd64.deb
 ocio_0.1.0_amd64.deb: Debian binary package (format 2.0)
@@ -493,12 +445,11 @@ control.tar.xz
 data.tar.xz
 ```
 
-<div class="fragment">
-
 ```text
 $ dpkg-deb -I ocio_0.1.0_amd64.deb | grep Depends
  Depends: libc6 (>= 2.17), libgl1, libx11-6
 ```
+<!-- .element: class="fragment" -->
 
 ```text
 $ dpkg-deb -c ocio_0.1.0_amd64.deb
@@ -506,9 +457,7 @@ $ dpkg-deb -c ocio_0.1.0_amd64.deb
 ./usr/share/applications/ocio.desktop
 ...
 ```
-
-</div>
-</div>
+<!-- .element: class="fragment" -->
 
 Note:
 Come e' fatto un file .deb:
@@ -524,8 +473,6 @@ Come e' fatto un file .deb:
 ---
 
 ## Dialetti
-
-<!-- .slide: style="font-size: 0.65em;" -->
 
 | Dimensione | Ecosistema RPM | Ecosistema DEB |
 |---|---|---|
@@ -548,8 +495,6 @@ Due dialetti, stesso principio ingegneristico:
 
 ## AppImage
 
-<div style="font-size: 0.78em; text-align: left; max-width: 800px; margin: 25px auto;">
-
 * Runtime stub ELF + filesystem compresso **SquashFS**
 * Montaggio in spazio utente tramite **FUSE** ed esecuzione `AppRun`
 * Dipendenza da `glibc` host: compilare su distro recente rompe la compatibilita' all'indietro
@@ -563,8 +508,6 @@ ocio.desktop
 ocio.png
 ```
 
-</div>
-
 Note:
 Come funziona AppImage:
 - Il file e' un binario ELF (runtime stub) che incapsula un'immagine SquashFS compressa.
@@ -577,8 +520,6 @@ Come funziona AppImage:
 
 ## Flatpak
 
-<div style="font-size: 0.78em; text-align: left; max-width: 800px; margin: 25px auto;">
-
 * Runtime condiviso versionato: `org.freedesktop.Platform`
 * Isolamento di sistema tramite **Bubblewrap** (`bwrap`)
 * Filesystem immutabile e riproducibile, disaccoppiato dall'host
@@ -590,8 +531,6 @@ app  bin  dev  etc  lib  lib64  proc  run  sys  usr  var
 [org.packathon.ocio ~]$ which ocio
 /app/bin/ocio
 ```
-
-</div>
 
 Note:
 Come funziona Flatpak:
@@ -625,19 +564,17 @@ finish-args:
 
 > *"CPack genera cinque formati in una riga. Ma un file non è un canale di distribuzione."*
 
-<div class="fragment" style="margin-top: 20px; text-align: left; font-size: 0.8em; line-height: 1.8;">
-<h4>CPack vs Build Service (OBS / Koji)</h4>
-<ul>
-  <li><strong>CPack</strong>: Compila sull'host dello sviluppatore; "avvelena" l'header RPM con percorsi e librerie locali.</li>
-  <li><strong>Open Build Service (OBS)</strong>:
-    <ul>
-      <li>Compilazione in <strong>chroot isolate dalla rete</strong>.</li>
-      <li>Ricompilazione automatica a cascata sui cambi di dipendenze.</li>
-      <li>Verifica vincolante con <code>%check</code> e policy audit (<code>rpmlint</code>).</li>
-      <li>Firma GPG automatizzata gestita dal server di build.</li>
-    </ul>
-  </li>
-</ul>
+<div class="fragment callout">
+
+#### CPack vs Build Service (OBS / Koji)
+
+* **CPack**: Compila sull'host dello sviluppatore; "avvelena" l'header RPM con percorsi e librerie locali.
+* **Open Build Service (OBS)**:
+  * Compilazione in <strong>chroot isolate dalla rete</strong>.
+  * Ricompilazione automatica a cascata sui cambi di dipendenze.
+  * Verifica vincolante con <code>%check</code> e policy audit (<code>rpmlint</code>).
+  * Firma GPG automatizzata gestita dal server di build.
+
 </div>
 
 ---
@@ -646,14 +583,12 @@ finish-args:
 
 La capacità di aggiornamento dipende dal **canale**, non dal formato:
 
-<ul style="font-size: 0.82em; text-align: left; line-height: 1.8;">
-  <li class="fragment"><strong><code>.deb</code> / <code>.rpm</code> via repo</strong>: Aggiornamenti automatici dell'OS (<code>apt upgrade</code>, <code>zypper dup</code>).</li>
-  <li class="fragment"><strong>File installato a mano (<code>dpkg -i</code> / <code>rpm -i</code>)</strong>: Artefatto orfano; nessuna patch futura.</li>
-  <li class="fragment"><strong>Flatpak via Flathub</strong>: Repository <strong>OSTree</strong>; delta statici a blocchi (aggiornamenti atomici).</li>
-  <li class="fragment"><strong>AppImage</strong>: Statico; richiede metadati <code>.upd_info</code> nella sezione ELF per abilitare <code>zsync</code>.</li>
-</ul>
+* **`.deb` / `.rpm` via repo**: Aggiornamenti automatici dell'OS (`apt upgrade`, `zypper dup`). <!-- .element: class="fragment" -->
+* **File installato a mano (`dpkg -i` / `rpm -i`)**: Artefatto orfano; nessuna patch futura. <!-- .element: class="fragment" -->
+* **Flatpak via Flathub**: Repository <strong>OSTree</strong>; delta statici a blocchi (aggiornamenti atomici). <!-- .element: class="fragment" -->
+* **AppImage**: Statico; richiede metadati <code>.upd_info</code> nella sezione ELF per abilitare <code>zsync</code>. <!-- .element: class="fragment" -->
 
-<p class="fragment" style="margin-top: 25px; font-size: 0.8em; color: #ff8a80;">
+<p class="fragment text-danger" style="margin-top: 25px;">
 <em>Un binario privo di canale di aggiornamento è un rischio di sicurezza permanente.</em>
 </p>
 
@@ -663,8 +598,6 @@ La capacità di aggiornamento dipende dal **canale**, non dal formato:
 
 Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli scriptlet (quando presenti) vengono eseguiti come **root**.
 
-<div style="font-size: 0.78em; text-align: left; margin-top: 20px;">
-
 | Ecosistema | Livello di Firma | Validazione a Runtime |
 |---|---|---|
 | **APT** | Metadati repo (`Release.gpg`) | Verifica obbligatoria pre-unpack |
@@ -672,9 +605,7 @@ Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli 
 | **Flatpak** | Commit &amp; Summary in OSTree | Verifica crittografica ad ogni pull |
 | **AppImage** | Sezione ELF (`--appimage-signature`) | **Nessuna verifica automatica** a runtime |
 
-</div>
-
-<p class="fragment" style="margin-top: 20px; font-size: 0.8em;">
+<p class="fragment" style="margin-top: 25px;">
 <strong>Scenario 2026</strong>: <em>Sigstore / Keyless</em> (OIDC) per release upstream; GPG tradizionale ancora obbligatorio per i package manager di sistema.
 </p>
 
@@ -687,15 +618,13 @@ Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli 
   * `raylib` scaricata a build time via Git (`FetchContent`, statica).
   * Stack X11/OpenGL/glibc risolto a run-time dalla distribuzione.
 
-<div class="fragment" style="margin-top: 20px; text-align: left; font-size: 0.82em; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px;">
-<p>L'SBOM in C è spezzata tra build time e run time. Solo un build service con chroot isolata e osservabile (es. OBS) può tracciare l'intero albero reale delle dipendenze.</p>
+<div class="fragment callout">
+L'SBOM in C è spezzata tra build time e run time. Solo un build service con chroot isolata e osservabile (es. OBS) può tracciare l'intero albero reale delle dipendenze.
 </div>
 
 ---
 
 ## Sintesi
-
-<div style="font-size: 0.72em;">
 
 | Formato | Chi risolve le dipendenze | Accoppiamento Host | Modello |
 |---|---|---|---|
@@ -705,19 +634,13 @@ Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli 
 | **Flatpak** | **Runtime Condiviso** (Freedesktop) | Disaccoppiato | Bubblewrap + Portali |
 | **Container OCI** | **Immagine Userspace Completa** | Minimo (kernel/DRI) | Namespaces + cgroups |
 
-</div>
-
-<p style="margin-top: 25px; font-size: 0.8em; color: #4fc3f7;">
+<p class="text-info" style="margin-top: 25px;">
 <em>Ogni formato sposta la responsabilità tecnica tra sviluppatore, maintainer e sistema.</em>
 </p>
 
 ---
 
 ## Metriche
-
-<!-- .slide: style="font-size: 0.75em;" -->
-
-<div style="font-size: 0.75em;">
 
 | Soluzione | Spazio su Disco (Payload + Deps) | Overhead Avvio a Freddo |
 |---|---|---|
@@ -729,17 +652,13 @@ Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli 
 | **OCI Container** | *[TBD: size MB]* | +*[TBD ms]* (Overlayfs &amp; rootless) |
 | **Source Build** | *[TBD: size MB]* (+ toolchain) | 0 ms (post-compilazione) |
 
-</div>
-
-<p style="margin-top: 25px; font-size: 0.85em; text-align: left;">
+<p style="margin-top: 25px;">
 <strong>Trade-off sistemistico:</strong> Portabilità e isolamento si pagano in tempi di inizializzazione e spazio su disco.
 </p>
 
 ---
 
 ## Limiti
-
-<div style="font-size: 0.82em; text-align: left; line-height: 1.8;">
 
 * **Formati esclusi**:
   * **Snap**: dipendenza da `snapd`, AppArmor accoppiato a patch kernel Ubuntu.
@@ -749,9 +668,7 @@ Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli 
   * Compilare su distro recente alza i simboli `GLIBC_2.XX` minimi: il bundle fallisce su sistemi più conservativi.
   * Soluzione: build containerizzati su baseline LTS datate.
 
-</div>
-
-<p style="margin-top: 25px; font-size: 0.82em; color: #ffb74d;">
+<p class="text-warn" style="margin-top: 25px;">
 <em>Non sono sviste: sono i confini fisici del rilascio software su Linux.</em>
 </p>
 
@@ -759,12 +676,12 @@ Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli 
 
 ## Q&A
 
-<div style="display: flex; justify-content: center; align-items: center; gap: 50px; margin-top: 35px;">
-  <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://michelepagot.github.io/packathon/" alt="QR Code Repository" style="border-radius: 8px; border: 2px solid rgba(255,255,255,0.3);" />
-  <div style="text-align: left; font-size: 0.85em;">
+<div class="grid-2" style="align-items: center; max-width: 700px; margin: 40px auto 0 auto;">
+  <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&amp;data=https://michelepagot.github.io/packathon/" alt="QR Code Repository" style="border-radius: 8px; border: 2px solid rgba(255,255,255,0.3);" />
+  <div>
     <p><strong>Slide &amp; Codice:</strong></p>
     <p><a href="https://michelepagot.github.io/packathon/" target="_blank">michelepagot.github.io/packathon</a></p>
     <p><a href="https://github.com/michelepagot/packathon" target="_blank">github.com/michelepagot/packathon</a></p>
-    <p style="margin-top: 20px; color: #81c784;"><strong>Q&amp;A aperto</strong></p>
+    <p class="text-success" style="margin-top: 20px;"><strong>Q&amp;A aperto</strong></p>
   </div>
 </div>
