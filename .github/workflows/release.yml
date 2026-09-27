@@ -209,3 +209,8 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          body: |
+            ### Container Images (GitHub Packages / GHCR)
+            Runtime container images for this release are hosted on GitHub Container Registry:
+            - **openSUSE Tumbleweed**: `ghcr.io/${{ github.repository }}/opensuse:${{ github.ref_name }}`
+            - **Debian Bookworm**: `ghcr.io/${{ github.repository }}/debian:${{ github.ref_name }}`
