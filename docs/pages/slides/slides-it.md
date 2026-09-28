@@ -5,28 +5,35 @@
 <p class="text-muted" style="margin-top: 30px;">Linux Day Trieste 2026</p>
 
 Note:
-Lasciare ocio in esecuzione su un secondo schermo o finestra.
+Lasciare ocio in esecuzione live su un secondo schermo o finestra divisa.
 Gag di apertura:
-"Gli organizzatori mi hanno invitato qui oggi per parlarvi di packaging e release engineering. Ma siamo onesti: io in realtà sono qui per mostrarvi l'applicazione vibecodata in 15 minuti che vi cambierà per sempre la vita."
-Mostrare l'occhio che traccia il mouse, premere V per la versione.
-"Ora che l'avete vista, so che la volete tutti. Ma non ho un server o una pipeline, quindi ho deciso di distribuirla alla vecchia maniera."
-Estrarre il floppy disk da 3.5 pollici dalla borsa:
+"Gli organizzatori mi hanno invitato qui oggi per parlarvi di packaging e release engineering. Ma siamo onesti: io in realta' sono qui per mostrarvi la mia applicazione vibecodata in 15 minuti che vi cambiera' per sempre la vita."
+Muovere il mouse, mostrare l'occhio che traccia il cursore, premere V per mostrare la versione (Ocio v0.1.0).
+"Ora che l'avete vista, so che la volete tutti. Ma non ho un server o una pipeline di distribuzione. Quindi ho deciso di distribuirla alla vecchia maniera."
+Estrarre il floppy disk fisico da 3.5" dalla borsa:
 "Se a fine talk mi lasciate il vostro indirizzo postale e un francobollo, ve la spedisco per posta."
+Il ritorno alla realta':
+Cosa succede se carico questo binario grezzo compilato su un server web e dico a 50 sconosciuti di scaricarlo ed eseguirlo?
+Fallisce immediatamente su macchine diverse: glibc disallineata, collegamenti dinamici DT_NEEDED mancanti (libGL.so, libX11.so), socket del display server assente o problemi di permessi.
+La cavia: perche' questa app:
+Sorgente volutamente banale: un solo main.c, ~280 righe di C99 pulito, zero logica di business: nulla compete con il packaging per l'attenzione.
+Footprint di runtime massimamente realistico: richiede accelerazione hardware OpenGL via DRI, un display server attivo (X11 / Wayland) e IPC su memoria condivisa (MIT-SHM).
+"Sorgente massimamente semplice, footprint di runtime massimamente realistico."
 
----
+--
 
 ## Slides
 <!-- .slide: class="text-center" -->
 
 <div class="center-card">
-  <img src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&amp;data=https://michelepagot.github.io/packathon/" alt="QR Code Slide" style="border-radius: 12px; border: 3px solid rgba(255,255,255,0.4);" />
+  <img src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&amp;data=https://michelepagot.github.io/packathon/" alt="Slide QR Code" style="border-radius: 12px; border: 3px solid rgba(255,255,255,0.4);" />
   <p><a href="https://michelepagot.github.io/packathon/" target="_blank">michelepagot.github.io/packathon</a></p>
 </div>
 
 Note:
-Pausa per permettere al pubblico di inquadrare il QR code.
+Pausa per consentire al pubblico di inquadrare il QR code e seguire live su smartphone o portatili.
 
----
+--
 
 ## Speaker
 
@@ -34,7 +41,10 @@ Pausa per permettere al pubblico di inquadrare il QR code.
 * **SUSE**: Quality Engineering (QE)
 * GitHub: [`@michelepagot`](https://github.com/michelepagot) · [`@mpagot`](https://github.com/mpagot)
 
----
+Note:
+Breve presentazione del relatore.
+
+--
 
 ## Disclaimer
 
@@ -42,9 +52,9 @@ Pausa per permettere al pubblico di inquadrare il QR code.
 * Lavoro in QE...
 
 Note:
-"Non sono un package maintainer di professione. Lavoro all'estremità della pipeline: test, validazione e analisi degli output di rilascio su sistemi completi. Questo talk nasce per capire cosa succede a monte prima che il software arrivi sui nostri banchi di test."
+"Non sono un package maintainer di professione. Lavoro all'estremita' della pipeline: test, validazione e analisi degli output di rilascio su sistemi completi. Questo talk nasce come indagine ingegneristica per capire a fondo la catena che genera gli artefatti a monte prima che arrivino ai banchi di test."
 
----
+--
 
 ## Agenda
 
@@ -68,6 +78,9 @@ Note:
 </div>
 </div>
 
+Note:
+Panoramica sintetica della progressione del talk.
+
 ---
 
 ## Censimento
@@ -80,13 +93,15 @@ Note:
 
 Note:
 Scandire le 5 domande guardando la sala:
-1. 100% mani.
-2. Repo ufficiali: fiducia cieca nei maintainer.
-3. Flatpak/AppImage: indipendenza o resa alle dipendenze.
-4. curl | sh: pragmatismo vs sicurezza della supply chain.
-5. Sorgenti: i puristi di /usr/local.
+1. 100% mani alzate.
+2. Repo ufficiali: cittadini modello con fiducia cieca nei maintainer.
+3. Flatpak/AppImage: chi cerca novita' upstream o si e' arreso alla dependency hell.
+4. curl | sh: pragmatismo notturno vs sicurezza della supply chain azzerata.
+5. Compilazione: puristi di /usr/local.
+Takeaway:
+"Guardatevi intorno: in questa sala non esiste un solo modo in cui il software viene ricevuto su Linux. Ognuno opera con un modello di fiducia diverso, aspettative di aggiornamento diverse e compromessi operativi diversi."
 
----
+--
 
 ## Prospettive
 
@@ -121,7 +136,7 @@ Pausa interattiva con la sala:
 Raccordo verso il resto del talk:
 "Nessuno ha ragione o torto: sono investimenti legittimi di tempo, energie e risorse su aspetti diversi. I formati di packaging che esploriamo oggi non nascono per rivalita', ma sono risposte ingegneristiche diverse per arbitrare questo trilemma. Ora vediamo il COME: cosa succede quando proviamo a distribuire il nostro binario."
 
----
+--
 
 ## Dipendenze
 
@@ -132,6 +147,87 @@ Raccordo verso il resto del talk:
 cannot open shared object file: No such file or directory
 ```
 <!-- .element: class="fragment" -->
+
+Note:
+Chiedere al pubblico il codice di uscita: 127.
+
+Comando di test in container minimale:
+$ podman run --rm -v ./build/bin/ocio:/ocio:ro,Z registry.opensuse.org/opensuse/tumbleweed:latest /ocio
+
+Aggancio scenico:
+"Abbiamo compilato, messo il binario su una chiavetta o scaricato da GitHub, e lo lanciamo su una macchina pulita. Risultato immediato: errore a runtime.
+Chi ha interrotto l'esecuzione? Il programma e' crashato? E' stato il kernel?
+Guardiamo cosa succede realmente sotto il cofano all'avvio."
+
+--
+
+## Avvio
+
+`$ ocio`
+
+1. **Shell**: ricerca in `$PATH` &rarr; `/usr/bin/ocio` <small>(`command -v ocio`)</small>
+2. **Kernel**: `execve()` &rarr; `PT_INTERP` &rarr; `ld.so`
+3. **ld.so**: `DT_NEEDED` &rarr; `/lib64/libOpenGL.so.0` trovato
+4. `main()`
+
+Note:
+La sequenza esatta di avvio di un ELF su Linux:
+1. La shell trova il file tramite $PATH.
+2. Il kernel chiama execve(), mappa l'ELF e passa il controllo all'interprete (ld.so). Il kernel ha fatto il suo lavoro senza errori!
+3. Il dynamic linker (in userspace) scansiona le voci DT_NEEDED.
+Ed e' qui che si consuma la tragedia: non trovando libOpenGL.so.0, ld.so stampa l'errore e invoca exit_group(127).
+4. main() non viene mai raggiunto. Il codice C non ha eseguito una sola istruzione.
+
+Ponte verso la slide successiva:
+"Ma come e' possibile? Sul computer di sviluppo compilava senza warning ed eseguiva perfettamente. Come fa un compilatore a produrre un binario che muore prima ancora di entrare in main()?"
+
+--
+
+## Build vs. Runtime
+
+<div class="grid-2">
+<div>
+
+### Build-Time
+* Consumate **una volta**
+* Header &amp; librerie statiche
+* Compilatore &amp; tool
+
+</div>
+<div>
+
+### Runtime
+* Richieste **a ogni avvio**
+* `.so` dinamiche &amp; `glibc`
+* Display &amp; nodi GPU
+
+</div>
+</div>
+
+<p class="fragment text-info" style="margin-top: 35px;">
+<em>In C, un binario dinamico è un contratto incompleto con l'OS host.</em>
+</p>
+
+Note:
+Compilare con successo non significa avere un'applicazione autosufficiente.
+- A build-time servono solo le dichiarazioni (header) e i simboli per generare il formato ELF.
+- A runtime servono le implementazioni concrete (.so), il display server e i driver GPU.
+In C, un binario collegato dinamicamente e' un contratto incompleto che deve essere onorato dall'ambiente host a runtime.
+
+Ponte verso la slide successiva:
+"Se il binario e' un contratto incompleto... come facciamo a verificare esattamente cosa richiede questo binario e cosa manca sulla macchina host?"
+
+--
+
+## Seguendo libOpenGL.so.0
+
+```text
+$ readelf -d ocio | grep NEEDED
+ (NEEDED)  Shared library: [libm.so.6]
+ (NEEDED)  Shared library: [libOpenGL.so.0]
+ (NEEDED)  Shared library: [libGLX.so.0]
+ (NEEDED)  Shared library: [libc.so.6]
+```
 
 ```text
 $ ldd ./ocio
@@ -145,67 +241,14 @@ $ ldd ./ocio
 <!-- .element: class="fragment" -->
 
 Note:
-Ask the audience the exist code: 127
+Come si manifesta questo contratto incompleto?
+1. readelf -d legge direttamente l'header ELF del binario: le voci DT_NEEDED elencano cio' che il compilatore ha registrato come dipendenze dinamiche.
+2. ldd simula l'interprete dinamico (ld.so) sull'host: per ciascuna voce cerca la libreria nei percorsi di sistema.
+Risultato: libOpenGL.so.0 e libGLX.so.0 risultano "not found".
 
-Comando di test in container minimale:
-$ podman run --rm -v ./build/bin/ocio:/ocio:ro,Z registry.opensuse.org/opensuse/tumbleweed:latest /ocio
-
-La realta' sistemistica:
-- Un binario ELF dinamico e' un contratto incompleto con l'OS.
-- execve() ha successo: il kernel mappa il binario e passa il controllo all'interprete indicato in PT_INTERP (/lib64/ld-linux-x86-64.so.2).
-- Il dynamic linker, in userspace, scansiona le voci DT_NEEDED nella sezione dinamica ELF.
-- Risolve i percorsi: RPATH/RUNPATH, /etc/ld.so.cache, sottodirectory glibc-hwcaps, /lib64, /usr/lib64.
-- La prima libreria mancante (libOpenGL.so.0) fa stampare l'errore a ld.so e chiama exit_group(127).
-- Il codice C non e' mai partito: il processo e' terminato nel loader, prima di main(). Il kernel ha fatto il suo lavoro; il contratto userspace e' stato violato. Il packaging e' la disciplina che garantisce che questo contratto sia soddisfatto ovunque.
-
----
-
-## Avvio
-
-`$ ocio`
-
-1. **Shell**: ricerca in `$PATH` &rarr; `/usr/bin/ocio` <small>(`command -v ocio`)</small>
-2. **Kernel**: `execve()` &rarr; `PT_INTERP` &rarr; `ld.so`
-3. **ld.so**: `DT_NEEDED` &rarr; `/lib64/libOpenGL.so.0` trovato
-4. `main()`
-
-
-Note:
-Rispondere esplicitamente alla domanda: cosa fa l'OS quando eseguiamo un'app installata da un RPM? Niente di speciale.
-- La shell trova il binario attraverso $PATH (/usr/bin e' sempre presente).
-- Il kernel lo carica e passa il controllo al dynamic linker, esattamente come nell'esecuzione fallita.
-- L'unica differenza: questa volta i file esistono, perche' il package manager li ha posizionati in precedenza.
-- RPM e' un installer e un contabile, non un runtime. Dopo l'installazione esce di scena.
-L'ultima domanda e' il ponte verso la sezione successiva: con AppImage e Flatpak, qualcun altro e' presente all'avvio (un mount FUSE, una sandbox).
-
----
-
-## Seguendo libOpenGL.so.0
-
-```text
-$ readelf -d ocio | grep OpenGL
- (NEEDED)  Shared library: [libOpenGL.so.0]
-```
-
-```text
-$ rpm -qp --requires ocio-0.1.0-1.x86_64.rpm | grep OpenGL
-libOpenGL.so.0()(64bit)
-```
-<!-- .element: class="fragment" -->
-
-<p class="fragment text-info" style="margin-top: 30px;">
-<strong>486 KB</strong> di pacchetto &rarr; <strong>36</strong> pacchetti &rarr; <strong>52.6 MiB</strong> di download
-</p>
-
-Note:
-Seguiamo una singola stringa dal messaggio di errore fino al repository.
-1. Il binario dice: ho bisogno di libOpenGL.so.0.
-2. Il pacchetto lo ripete, in una forma che il package manager puo' interrogare.
-3. Il repository risponde: libglvnd lo fornisce. Il nome dal messaggio di errore ora ha un proprietario.
-4. Ma libglvnd ha i suoi requisiti (libX11, Mesa-dri), che hanno i loro, e cosi' via.
-Risultato su un container Tumbleweed vanilla: 36 nuovi pacchetti (incluso ocio), 52.6 MiB di download, per un pacchetto di 486 KB.
-Una frase sul solver, non di piu': "Alcuni requisiti hanno fornitori alternativi; scegliere un insieme coerente tra decine di migliaia di pacchetti e' un problema logico (SAT), e zypper lo risolve in millisecondi con libsolv." Approfondimento solo se richiesto nel Q&A.
-Nota per utenti Fedora: l'equivalente di zypper se --provides e' dnf provides.
+Ponte verso la sezione Formati:
+"Il binario richiede queste librerie, ma il sistema dell'utente non le possiede. Come facciamo a distribuirle o a garantire che siano presenti?
+E' qui che entra in gioco il packaging: ciascun formato su Linux adotta una strategia radicalmente diversa per colmare questo divario."
 
 ---
 
@@ -218,25 +261,51 @@ Nota per utenti Fedora: l'equivalente di zypper se --provides e' dnf provides.
 | **Debian (`.deb`)** | Archivio `ar` standard via CPack |
 | **AppImage** | File unico con SquashFS montato via FUSE |
 | **Flatpak** | Sandbox Bubblewrap su runtime Freedesktop |
-| **Compilazione sorgente** | Matrice CMake controllata (`FETCH`, `SYSTEM`, `LOCAL`) |
+
+Note:
+Lo spettro dei formati esplorati: dal semplice tarball non gestito ai pacchetti di sistema, bundle auto-montanti e sandbox desktop.
+Regola di conteggio: non citare mai il numero totale dei formati a voce (le liste differiscono intenzionalmente tra le sezioni).
+Transizione verso la Rotta 1: approfondiremo i 4 grandi formati desktop (RPM, DEB, AppImage, Flatpak), partendo dalla delega alla distribuzione.
 
 ---
 
-## Dentro un RPM
+## RPM: Standard Nativo
+
+* *Marc Ewing &amp; Erik Troan* (Red Hat, 1997)
+* Archivio con metadati di dipendenza
+* Standard enterprise e distro (LSB)
+
+<p class="fragment text-info" style="margin-top: 35px;">
+<strong>Superpotere:</strong> Delega la risoluzione delle dipendenze al graph solver dell'OS.
+</p>
+
+Note:
+Introduciamo RPM:
+- Origine: Creato nel 1997 da Marc Ewing ed Erik Troan (Red Hat).
+- Natura: Un archivio con metadati che trasporta file e dichiara dipendenze formali.
+- Diffusione: Lo standard di riferimento per openSUSE, SLE, Fedora e RHEL (specifica LSB).
+- CLI quotidiana:
+  * Ispezione: rpm -qlp (file) e rpm -qp --requires (dipendenze)
+  * Installazione con risolutore: zypper in oppure dnf in
+  * Verifica integrita': rpm -V (rileva file alterati rispetto ai digest del db)
+- Superpotere: Delega al solver SAT della distribuzione.
+Ora andiamo a vedere cosa c'e' fisicamente dentro il file .rpm sul disco.
+
+--
+
+## Dentro un RPM: Struttura
 
 ```text
 $ file ocio-0.1.0-1.x86_64.rpm
 ocio-0.1.0-1.x86_64.rpm: RPM v3.0 bin i386/x86_64
 ```
 <!-- .element: class="fragment" -->
-```text
-+--------+-------------+-------------+------------------------------+
-| Lead   | Signature   | Header      | Payload                      |
-| magic  | digests,    | name, deps, | cpio archive, zstd           |
-|        | GPG (none)  | file list   | the files                    |
-+--------+-------------+-------------+------------------------------+
-```
+
+| Lead | Signature | Header | Payload |
+|:---:|:---:|:---:|:---:|
+| `magic` | `digests, GPG` | `name, deps, files` | `cpio (zstd)` |
 <!-- .element: class="fragment" -->
+
 ```text
 $ rpm2cpio ocio-0.1.0-1.x86_64.rpm | file -
 /dev/stdin: ASCII cpio archive (SVR4 with no CRC)
@@ -244,7 +313,6 @@ $ rpm2cpio ocio-0.1.0-1.x86_64.rpm | cpio -idmv
 ./usr/bin/ocio
 ./usr/share/applications/ocio.desktop
 ...
-
 ```
 <!-- .element: class="fragment" -->
 
@@ -267,14 +335,9 @@ Come estrarlo (fragment):
 - L'eseguibile estratto ./usr/bin/ocio e' identico byte per byte al binario compilato.
 Messaggio chiave: estrarre significa solo copiare file. Nessun controllo di dipendenze, nessun record nel database, nessuno script. L'installazione e' cio' che rpm aggiunge sopra: tenetelo a mente per le prossime slide.
 
----
+--
 
-## Dentro un RPM
-
-<div class="grid-2">
-<div>
-
-#### Payload: file
+## Dentro un RPM: Payload
 
 ```text
 $ rpm -qlp ocio-0.1.0-1.x86_64.rpm
@@ -285,10 +348,16 @@ $ rpm -qlp ocio-0.1.0-1.x86_64.rpm
 /usr/share/metainfo/org.packathon.ocio.metainfo.xml
 ```
 
-</div>
-<div class="fragment">
+Note:
+rpm puo' interrogare il file senza installarlo (-p = file di pacchetto).
+Dettaglio del payload (directory omesse dall'elenco):
+- /usr/bin/ocio: il binario, posizionato in una directory gia' presente nel $PATH di sistema.
+- .desktop + icone: desktop entry e icone per consentire al desktop environment di mostrarlo nei menu.
+- metainfo XML: metadati AppStream affinche' i software center grafici (GNOME Software, Discover) presentino descrizioni, categorie e screenshot.
 
-#### Header: metadati
+--
+
+## Dentro un RPM: Metadati
 
 ```text
 $ rpm -qp --requires ocio-0.1.0-1.x86_64.rpm
@@ -297,29 +366,25 @@ libGLX.so.0()(64bit)
 libc.so.6(GLIBC_2.34)(64bit)
 libm.so.6(GLIBC_2.43)(64bit)
 ...
+```
+
+```text
 $ rpm -qp --provides ocio-0.1.0-1.x86_64.rpm
 ocio = 0.1.0-1
 application(ocio.desktop)
 ```
-
-</div>
-</div>
+<!-- .element: class="fragment" -->
 
 Note:
-rpm puo' interrogare entrambe le meta' del file senza installarlo (-p = file di pacchetto).
-Payload (directory omesse dall'elenco):
-- /usr/bin/ocio: il binario, in una directory gia' presente in $PATH.
-- .desktop + icone: come l'app appare nel menu del desktop.
-- metainfo XML: come i centri software (GNOME Software, Discover) la descrivono.
-Header, sul fragment:
-- Guardate i Requires: libOpenGL.so.0, libGLX.so.0. Questo e' esattamente l'elenco DT_NEEDED dall'errore di due slide fa.
-- Nessuno ha scritto queste righe a mano. Il dependency generator di rpmbuild legge l'ELF (DT_NEEDED + versioni dei simboli glibc) e le scrive nell'header automaticamente.
-- Provides: cosa offre questo pacchetto agli altri (un nome, una versione, un'applicazione desktop).
-- Parcheggiamo GLIBC_2.43: ci torniamo nella slide Delega.
+Ispezione dell'header:
+- Guardate i Requires: libOpenGL.so.0, libGLX.so.0. Questo e' esattamente l'elenco DT_NEEDED del crash iniziale.
+- Nessuno ha scritto queste righe a mano: il dependency generator di rpmbuild scansiona il binario ELF (DT_NEEDED + versioni simboli glibc) e compila l'header in automatico.
+- Provides: cosa offre questo pacchetto al sistema (nome pacchetto, versione e capacita' desktop).
+- Parcheggiamo GLIBC_2.43: notate questa baseline di simboli; ci torneremo analizzando i trade-off della delega.
 
----
+--
 
-## Demo rpm
+## Demo Live: RPM
 
 Installazione RPM in container openSUSE Tumbleweed *vanilla*:
 
@@ -341,14 +406,9 @@ Cosa fa zypper, in ordine (visibile nel suo output):
 - Install: scompatta i file in /usr, registra ogni file nel database RPM.
 Dettaglio critico dell'asterisco: --allow-unsigned-rpm. rpm -qi ocio mostra "Signature: (none)" e "Build Host: e246f0b7ceaf" (un ID container casuale): nulla prova chi abbia costruito questo pacchetto. Questo non include scriptlet (rpm -qp --scripts e' vuoto), ma il prossimo RPM non firmato potrebbe averne, e gli scriptlet girano come root. Anticipare la sezione Firme.
 
----
+--
 
-## Dopo l'installazione
-
-<div class="grid-2">
-<div>
-
-#### Risolto
+## Dopo l'Installazione: Risolto
 
 ```text
 $ ldd /usr/bin/ocio
@@ -362,69 +422,72 @@ $ ldd /usr/bin/ocio
   ...
 ```
 
-</div>
-<div class="fragment">
+<p class="fragment text-info" style="margin-top: 25px;">
+<strong>486 KB</strong> di pacchetto &rarr; <strong>36</strong> pacchetti &rarr; <strong>52.6 MiB</strong> di download
+</p>
 
-#### Registrato
+Note:
+Confronto diretto con il crash iniziale:
+- Ogni libreria prima mancante (libOpenGL.so.0, libGLX.so.0) e' ora risolta con un percorso assoluto in /lib64.
+- Notate la risoluzione transitiva: il loader ha risolto anche le dipendenze secondarie tirate dentro da libglvnd (libGLdispatch, libX11, libxcb).
+- Il costo della delega: per installare il nostro pacchetto da 486 KB, il SAT solver (libsolv) ha selezionato 36 pacchetti dal repository per un totale di 52.6 MiB di download.
+- Il contratto userspace e' ora completamente soddisfatto dalla distribuzione.
+
+--
+
+## Dopo l'Installazione: Registrato e Protetto
 
 ```text
 $ rpm -qf /usr/lib64/libOpenGL.so.0
 libglvnd-1.7.0-2.4.x86_64
-$ rpm -V ocio && echo clean
-clean
-$ rpm -e --test libglvnd
-error: Failed dependencies:
-  libOpenGL.so.0()(64bit) is needed by
-    (installed) ocio-0.1.0-1.x86_64
-  ...
 ```
 
-</div>
-</div>
+```text
+$ rpm -V ocio && echo clean
+clean
+```
+<!-- .element: class="fragment" -->
+
+```text
+$ rpm -e --test libglvnd
+error: Failed dependencies:
+  libOpenGL.so.0()(64bit) is needed by (installed) ocio-0.1.0-1.x86_64
+```
+<!-- .element: class="fragment" -->
 
 Note:
-A sinistra: lo stesso ldd della slide Dipendenze. Ogni "not found" ora e' un percorso in /lib64. Il loader segue anche le dipendenze delle librerie stesse (libGLdispatch, libX11, libxcb).
-A destra: installare significa copiare file piu' tenere traccia.
-- rpm -qf: ogni file sul sistema ha un proprietario noto.
-- rpm -V: verifica i file installati rispetto ai digest nel database. Momento live facoltativo: aggiungere un byte a ocio.desktop e rieseguire, loutput diventa "S.5....T. /usr/share/applications/ocio.desktop" (Size, digest (5), mTime modificati).
-- rpm -e --test: il database rifiuta di rimuovere una libreria di cui altri hanno ancora bisogno. Questo e' cio' che impedisce al sistema di rompersi.
+Installare significa copiare file e mantenere un database autorevole:
+- Proprieta' (rpm -qf): ogni singolo file sul filesystem ha un pacchetto proprietario certo e tracciabile.
+- Verifica integrita' (rpm -V): verifica i file rispetto ai digest sha256 memorizzati. Se un file viene manomesso, rpm -V lo segnala all'istante.
+- Protezione dipendenze (rpm -e --test): il sistema impedisce la rimozione accidentale di librerie necessarie ad altri pacchetti installati.
 
----
+--
 
-## Delega
+## DEB: Standard Debian
 
-* **Filosofia**: Il pacchetto trasporta solo il payload; dipendenze delegate alla distribuzione.
+* *Ian Murdock* (Debian, 1993)
+* Rigide policy e conformità FHS
+* Standard Debian, Ubuntu e Mint
 
-<div class="grid-2 fragment" style="margin-top: 25px;">
-<div class="box-success">
-
-#### Vantaggi
-
-* Payload minimo: 486 KB (52.6 MiB delegati).
-* Librerie condivise: un solo <code>libglvnd</code> per ogni app.
-* Proprietà &amp; verifica: <code>rpm -qf</code>, <code>rpm -V</code>.
-
-</div>
-<div class="box-danger">
-
-#### Vincoli
-
-* Accoppiamento ABI: <code>libm.so.6(GLIBC_2.43)</code>.
-* Policy di packaging rigorose (FHS, <code>%files</code>, scriptlet).
-* Una build per ogni distro target.
-
-</div>
-</div>
+<p class="fragment text-info" style="margin-top: 35px;">
+<strong>Superpotere:</strong> Mappatura esatta dei simboli via <code>dpkg-shlibdeps</code> e scriptlet di controllo.
+</p>
 
 Note:
-Riepilogo: ogni punto si riferisce a qualcosa che il pubblico ha appena visto.
-- 486 KB vs 52.6 MiB: la distribuzione porta il peso.
-- libglvnd e' condiviso da ocio, Mesa e ogni altra applicazione GL (rpm -q --whatrequires libglvnd): una CVE viene risolta una volta per tutte.
-- GLIBC_2.43 nei Requires: questo pacchetto si installa solo dove glibc >= 2.43 esiste. Compilato su Tumbleweed, e' inutilizzabile su una LTS piu' vecchia. Il prezzo della delega e' l'accoppiamento.
+Introduciamo DEB:
+- Origine: Creato nel 1993 da Ian Murdock per la release iniziale di Debian.
+- Natura: Formato vincolato da rigide policy di packaging della distribuzione e conformita' FHS.
+- Diffusione: Lo standard di riferimento per Debian, Ubuntu, Linux Mint e derivate.
+- CLI quotidiana:
+  * Ispezione: dpkg-deb -c (file) e dpkg-deb -I (metadati di controllo)
+  * Installazione con risolutore: apt install ./file.deb
+  * Verifica integrita': debsums (verifica integrita' file rispetto ai checksum md5)
+- Superpotere: Mappatura esatta dei simboli di libreria e scriptlet di controllo.
+Ora vediamo cosa c'e' fisicamente dentro un file .deb sul disco.
 
----
+--
 
-## DEB
+## Dentro un DEB: Archivio Unix `ar`
 
 ```text
 $ file ocio_0.1.0_amd64.deb
@@ -437,6 +500,7 @@ debian-binary
 control.tar.xz
 data.tar.xz
 ```
+<!-- .element: class="fragment" -->
 
 ```text
 $ dpkg-deb -I ocio_0.1.0_amd64.deb | grep Depends
@@ -444,53 +508,114 @@ $ dpkg-deb -I ocio_0.1.0_amd64.deb | grep Depends
 ```
 <!-- .element: class="fragment" -->
 
-```text
-$ dpkg-deb -c ocio_0.1.0_amd64.deb
-./usr/bin/ocio
-./usr/share/applications/ocio.desktop
-...
-```
-<!-- .element: class="fragment" -->
-
 Note:
-Come e' fatto un file .deb:
-- Non usa formati proprietari: e' un archivio ar standard Unix (lo stesso formato delle librerie statiche .a).
-- Contiene tre soli file:
+Anatomia di un file .deb:
+- Non usa alcun formato contenitore proprietario: e' un archivio standard Unix ar (lo stesso formato usato per le librerie statiche .a).
+- Contiene esattamente tre membri:
   1. debian-binary: stringa di testo con la versione del formato ("2.0\n").
-  2. control.tar: archivio compresso con i metadati (control, md5sums, scriptlet postinst/prerm).
-  3. data.tar: archivio compresso contenente i file effettivi da installare sul filesystem.
-- dpkg-deb -I: ispeziona i metadati di controllo. Guardate il Depends: libc6, libgl1, libx11-6. In Debian e' generato da dpkg-shlibdeps scansionando i simboli DT_NEEDED.
-- dpkg-deb -c: elenca il contenuto di data.tar senza estrarlo.
-- In un container vergine debian:bookworm-slim, apt-get install /ocio.deb risolve l'albero e scarica 40 pacchetti.
+  2. control.tar: archivio compresso con i metadati del pacchetto (file control, md5sums, scriptlet postinst/prerm).
+  3. data.tar: archivio compresso contenente i file del payload effettivo da scompattare sul filesystem.
+- dpkg-deb -I: ispeziona i metadati di controllo. Depends: libc6, libgl1, libx11-6 e' generato automaticamente da dpkg-shlibdeps.
 
----
+--
 
 ## Dialetti
 
 | Dimensione | Ecosistema RPM | Ecosistema DEB |
 |---|---|---|
-| **Contenitore** | CPIO compresso (zstd/gzip) | Archivio `ar` (`control.tar` + `data.tar`) |
-| **Tool basso livello** | `rpm` | `dpkg` |
+| **Contenitore** | CPIO (`zstd`) | Archivio `ar` standard |
+| **Tool base** | `rpm` | `dpkg` |
 | **Package manager** | `zypper` / `dnf` | `apt` |
-| **Generatore deps** | `find-requires` (da `DT_NEEDED`) | `dpkg-shlibdeps` (file `symbols`) |
-| **Ispezione payload** | `rpm -qlp FILE.rpm` | `dpkg-deb -c FILE.deb` |
-| **Ispezione metadati** | `rpm -qp --requires FILE.rpm` | `dpkg-deb -I FILE.deb` |
-| **Verifica integrità** | `rpm -V PACKAGE` | `debsums PACKAGE` |
+| **Risolutore deps** | `find-requires` | `dpkg-shlibdeps` |
+| **Ispezione file** | `rpm -qlp` | `dpkg-deb -c` |
+| **Ispezione metadati** | `rpm -qp --requires` | `dpkg-deb -I` |
+| **Verifica integrità** | `rpm -V` | `debsums` |
+<!-- .element: style="font-size: 0.76em;" -->
 
 Note:
 Due dialetti, stesso principio ingegneristico:
-- Sia RPM che DEB separano nettamente il payload dei file dai metadati di controllo.
-- Entrambi usano generatori automatici per trasformare i requisiti ELF DT_NEEDED in dipendenze di pacchetto.
-- Entrambi delegano la risoluzione a un gestore ad alto livello (zypper/dnf con libsolv, apt con il suo motore di scoring).
-- Conclusione della sezione Delega: abbiamo visto come la distribuzione si fa carico del mondo. Ora vediamo la contromossa: chi rifiuta di delegare.
+- Contenitori: RPM usa un payload CPIO compresso (zstd o gzip); DEB usa un classico archivio Unix ar contenente control.tar (metadati) e data.tar (payload).
+- Generazione dipendenze: find-requires scansiona le voci ELF DT_NEEDED; dpkg-shlibdeps mappa i simboli tramite i file symbols delle librerie.
+- Ispezione: rpm -qlp FILE.rpm vs dpkg-deb -c FILE.deb per i file; rpm -qp --requires vs dpkg-deb -I per i metadati.
+- Integrita': rpm -V PACKAGE controlla i digest salvati nel database RPM; debsums PACKAGE verifica i file rispetto ai digest md5sums.
+- Risoluzione: Entrambi delegano a un risolutore ad alto livello (zypper/dnf con libsolv, apt con il suo motore di scoring).
+
+--
+
+## Delega
+
+* **Filosofia**: Il pacchetto trasporta solo il payload; dipendenze delegate alla distribuzione.
+
+<div class="grid-2 fragment" style="margin-top: 25px;">
+<div class="box-success">
+
+#### Vantaggi
+
+* Payload minimo: **486 KB** (52.6 MiB delegati)
+* Librerie condivise: patchate una volta per tutte le app
+* Proprietà e verifica: `rpm -qf`, `rpm -V`
+
+</div>
+<div class="box-danger">
+
+#### Limiti
+
+* Accoppiamento ABI: `libm.so.6(GLIBC_2.43)`
+* Rigide policy di packaging (FHS, scriptlet)
+* Una build per ciascuna distribuzione target
+
+</div>
+</div>
+
+Note:
+Riepilogo: ogni punto si riferisce direttamente a cio' che la sala ha appena visto:
+- 486 KB vs 52.6 MiB: la distribuzione si fa carico del grafo delle dipendenze a runtime.
+- Librerie condivise: libglvnd e' condivisa tra tutte le app GL; una vulnerabilita' viene corretta una volta sola per l'intero sistema.
+- GLIBC_2.43 nei Requires: questo pacchetto si installa solo dove esiste glibc >= 2.43. Compilato su Tumbleweed, non parte su una LTS meno recente.
+- Il prezzo della delega e' lo stretto accoppiamento con l'host.
 
 ---
 
-## AppImage
+## AppImage: Singolo File Portabile
 
-* Runtime stub ELF + filesystem compresso **SquashFS**
-* Montaggio in spazio utente tramite **FUSE** ed esecuzione `AppRun`
-* Dipendenza da `glibc` host: compilare su distro recente rompe la compatibilita' all'indietro
+<div class="grid-2">
+<div>
+
+### Cos'è
+* Un'app = un singolo file eseguibile
+* *Simon Peter* (2004 *klik*, 2011)
+* Zero installazione, niente root
+
+</div>
+<div>
+
+### CLI Quotidiana
+* **Esegui**: `chmod +x ./file.AppImage && ./file.AppImage`
+* **Estrai**: `./file.AppImage --appimage-extract`
+* **Fallback**: Funziona senza FUSE via root estratto
+
+</div>
+</div>
+
+<p class="fragment text-info" style="margin-top: 30px;">
+<strong>Superpotere:</strong> Portabilità istantanea tramite mount FUSE in userspace.
+<br><span class="text-warn">Il Limite:</span> Include l'app, non la glibc ("compila sulla distro più vecchia").
+</p>
+
+Note:
+Introduciamo AppImage con le 4 lenti:
+1. Cos'e': Creato da Simon Peter (probono) nel 2004 come klik, rinominato nel 2011 in AppImage. Idea di fondo: un'applicazione deve essere un unico file cliccabile.
+2. Superpotere: Portabilita' istantanea. Non richiede permessi di root, non sporca il sistema e viene montato in userspace tramite FUSE.
+3. Flusso comune: Scarica, dai i permessi di esecuzione ed esegui. Se FUSE non e' disponibile (ad esempio in container), --appimage-extract offre un fallback immediato.
+4. Il paradosso glibc: AppImage include le librerie dell'applicazione, ma si appoggia a glibc e kernel dell'host. Compilato su una distro rolling, i simboli GLIBC impediscono l'avvio su LTS piu' datate. Regola d'oro: compila sulla distro piu' vecchia che intendi supportare.
+
+--
+
+## Dentro un AppImage: Stub e SquashFS
+
+* **Stub runtime ELF**: piccolo eseguibile posto in testa al file
+* **Filesystem SquashFS**: payload compresso accodato direttamente allo stub
+* **Mount ed esecuzione**: FUSE monta in `/tmp/.mount_XXXXXX` ed esegue `AppRun`
 
 ```text
 $ ./ocio-x86_64.AppImage --appimage-extract
@@ -500,22 +625,54 @@ ocio
 ocio.desktop
 ocio.png
 ```
+<!-- .element: class="fragment" -->
 
 Note:
-Come funziona AppImage:
-- Il file e' un binario ELF (runtime stub) che incapsula un'immagine SquashFS compressa.
-- All'avvio, il runtime monta il filesystem in spazio utente tramite FUSE e lancia AppRun.
-- Non richiede permessi di root ne' installazione: si scarica e si esegue direttamente.
-- Il limite di glibc: non include la libreria C ne' l'ABI del kernel. Se compilato su una distribuzione recente, fissa simboli GLIBC minimi che impediscono l'esecuzione su distribuzioni LTS piu' datate.
-- Con l'opzione --appimage-extract il payload viene scompattato, consentendo l'uso anche dove FUSE non e' abilitato.
+Meccanica interna di AppImage:
+- Un file AppImage e' un binario ELF seguito immediatamente da un filesystem SquashFS compresso.
+- All'avvio, lo stub ELF intercetta l'esecuzione, monta il filesystem interno in una directory temporanea in /tmp tramite FUSE ed esegue lo script AppRun all'interno del mount.
+- AppRun imposta LD_LIBRARY_PATH e lancia l'applicazione.
+- Alla chiusura dell'app, il mount FUSE viene smontato e rimosso.
+- L'opzione --appimage-extract dimostra come all'interno vi sia una root di filesystem completa e autosufficiente.
 
 ---
 
-## Flatpak
+## Flatpak: Runtime Desktop in Sandbox
 
-* Runtime condiviso versionato: `org.freedesktop.Platform`
-* Isolamento di sistema tramite **Bubblewrap** (`bwrap`)
-* Filesystem immutabile e riproducibile, disaccoppiato dall'host
+<div class="grid-2">
+<div>
+
+### Cos'è
+* Standard desktop universale in sandbox
+* *Alexander Larsson* (2015 *xdg-app*, 2016)
+* Sostenuto dall'ecosistema Flathub
+
+</div>
+<div>
+
+### CLI Quotidiana
+* **Esegui**: `flatpak run org.packathon.ocio`
+* **Ispeziona**: `flatpak run --command=sh <app>`
+* **Modifica**: `flatpak override --user <flags>`
+
+</div>
+</div>
+
+<p class="fragment text-info" style="margin-top: 30px;">
+<strong>Superpotere:</strong> Totale disaccoppiamento dall'host tramite sandbox Bubblewrap non privilegiate.
+<br><span class="text-warn">Il Limite:</span> Zero accesso implicito a display, file o GPU dell'host.
+</p>
+
+Note:
+Introduciamo Flatpak con le 4 lenti:
+1. Cos'e': Creato nel 2015 da Alexander Larsson in Red Hat (inizialmente xdg-app). E' diventato lo standard de-facto per app desktop cross-distro su Flathub.
+2. Superpotere: Disaccoppiamento radicale. L'applicazione non vede /usr dell'host, ma un ambiente isolato gestito da Bubblewrap con namespace del kernel e filtri seccomp.
+3. Flusso comune: Installa da repository remoto (Flathub), esegui, ispeziona l'ambiente interno con --command=sh e gestisci i permessi con flatpak override.
+4. Il limite: Poiche' la sandbox e' sigillata per impostazione predefinita, qualsiasi comunicazione con l'esterno deve essere dichiarata esplicitamente.
+
+--
+
+## Dentro Flatpak: Struttura Filesystem
 
 ```text
 $ flatpak run --command=sh org.packathon.ocio
@@ -525,99 +682,157 @@ app  bin  dev  etc  lib  lib64  proc  run  sys  usr  var
 /app/bin/ocio
 ```
 
+* **`/app`**: Payload dell'applicazione e librerie dedicate (mount in sola lettura)
+* **`/usr`**: Runtime condiviso (`org.freedesktop.Platform`), immutabile e versionato
+* **Host `/`**: Completamente invisibile; isolamento garantito da **Bubblewrap** (`bwrap`)
+<!-- .element: class="fragment" -->
+
 Note:
-Come funziona Flatpak:
-- Disaccoppiamento radicale dall'OS: l'applicazione non vede /usr della macchina host, ma un runtime condiviso versionato (Freedesktop Platform).
-- Isolamento tramite Bubblewrap (bwrap): namespaces del kernel Linux (mount, PID, network, IPC) per creare un container desktop riproducibile.
-- Struttura dei percorsi: /app contiene i file dell'applicazione, /usr contiene le librerie della runtime platform.
-- Ponte verso la slide successiva: poiche' la sandbox e' isolata, per comunicare con schermo, GPU e audio dobbiamo richiedere esplicitamente i permessi nel file di manifest.
+Struttura del filesystem interno in Flatpak:
+- L'opzione --command=sh ci posiziona nell'esatto ambiente visibile all'applicazione.
+- Notate i due punti di mount fondamentali:
+  1. /app contiene esclusivamente i binari dell'app, i file desktop e le librerie dedicate.
+  2. /usr e' montato dal runtime condiviso Freedesktop. Fornisce libc, mesa e lo stack grafico di base, identico su Arch, Debian, openSUSE o Fedora.
+- Il filesystem root dell'host non e' minimamente accessibile.
 
----
+--
 
-## Permessi
+## Permessi: Varchi nella Sandbox
 
-Non fidarsi dell'host impone la re-dichiarazione esplicita di ogni risorsa:
+Non fidarsi dell'host impone di ridichiarare esplicitamente ogni risorsa:
 
 ```yaml
 # packaging/flatpak/org.packathon.ocio.yml
 finish-args:
   - --socket=x11        # Display server X11
-  - --socket=wayland    # Compositor Wayland
-  - --device=dri        # Accelerazione GPU (/dev/dri)
-  - --share=ipc         # Memoria condivisa (MIT-SHM)
+  - --socket=wayland    # Wayland compositor socket
+  - --device=dri        # GPU acceleration (/dev/dri)
+  - --share=ipc         # Shared memory (MIT-SHM)
 ```
 
-* Nei container host (Podman):  
-  `--net=host --ipc=host -v /tmp/.X11-unix:/tmp/.X11-unix --device /dev/dri`
-* **Conseguenza**: La complessità si sposta dai simboli dinamici alla negoziazione di canali IPC e portali D-Bus.
+<p class="fragment text-info" style="margin-top: 25px;">
+<strong>Conseguenza:</strong> La complessità si sposta dai simboli di libreria dinamica alla configurazione di socket IPC e portali.
+</p>
+
+Note:
+Spiegare l'apertura dei varchi (hole-punching):
+- Quando ci si disaccoppia dall'host, di base si interrompe ogni interazione. L'applicazione non puo' visualizzare finestre, usare la GPU o riprodurre suoni.
+- Le finish-args nel manifest Flatpak aprono varchi mirati:
+  - i socket per X11/Wayland consentono di disegnare a schermo.
+  - /dev/dri abilita l'accelerazione GPU hardware.
+  - --share=ipc abilita il trasferimento rapido dei buffer via memoria condivisa (MIT-SHM).
+- Messaggio chiave: La complessita' del packaging non scompare mai, si conserva. Invece di risolvere conflitti di simboli DT_NEEDED, ora configuriamo socket IPC e portali XDG.
 
 ---
 
-## Rilascio
+## Rilascio: Artefatto vs Canale
 
 > *"CPack genera cinque formati in una riga. Ma un file non è un canale di distribuzione."*
 
-<div class="fragment callout">
+<div class="grid-2 fragment" style="margin-top: 25px;">
+<div class="box-danger">
 
-#### CPack vs Build Service (OBS / Koji)
-
-* **CPack**: Compila sull'host dello sviluppatore; "avvelena" l'header RPM con percorsi e librerie locali.
-* **Open Build Service (OBS)**:
-  * Compilazione in <strong>chroot isolate dalla rete</strong>.
-  * Ricompilazione automatica a cascata sui cambi di dipendenze.
-  * Verifica vincolante con <code>%check</code> e policy audit (<code>rpmlint</code>).
-  * Firma GPG automatizzata gestita dal server di build.
+#### CPack (Artefatto Locale)
+* Compila sull'host non isolato dello sviluppatore
+* Inserisce percorsi e toolchain locali nei metadati
+* Nessuna provenienza crittografica o fiducia
 
 </div>
+<div class="box-success">
 
----
+#### Build Service (OBS / Koji)
+* **Chroot isolati** (accesso di rete disabilitato in build)
+* Ricompilazioni automatiche su aggiornamenti di libreria
+* Controllo policy automatico (`rpmlint`) e firma con chiavi
 
-## Aggiornamenti
+</div>
+</div>
+
+Note:
+La tesi centrale dell'Atto 3:
+- Creare un .deb o un .rpm con CPack o alien e' tecnicamente banale, ma genera un artefatto orfano.
+- Il problema dell'host "sporco": compilando sulla propria macchina di sviluppo si rischia di contaminare i pacchetti con percorsi locali, patch non tracciate o flag del compilatore specifici.
+- La vera distribuzione richiede un'infrastruttura di build fidata (Open Build Service, Koji, Launchpad):
+  1. Build ermetiche in chroot puliti senza connessione Internet.
+  2. Il grafo delle dipendenze innesca ricompilazioni automatiche quando cambiano le librerie condivise.
+  3. Controlli di conformita' (rpmlint, suite di test) e firma GPG automatizzata con chiavi protette.
+
+--
+
+## Aggiornamenti: Canale vs Formato
 
 La capacità di aggiornamento dipende dal **canale**, non dal formato:
 
-* **`.deb` / `.rpm` via repo**: Aggiornamenti automatici dell'OS (`apt upgrade`, `zypper dup`). <!-- .element: class="fragment" -->
+* **`.deb` / `.rpm` via repository**: Aggiornamenti automatici dell'OS (`apt upgrade`, `zypper dup`). <!-- .element: class="fragment" -->
 * **File installato a mano (`dpkg -i` / `rpm -i`)**: Artefatto orfano; nessuna patch futura. <!-- .element: class="fragment" -->
-* **Flatpak via Flathub**: Repository <strong>OSTree</strong>; delta statici a blocchi (aggiornamenti atomici). <!-- .element: class="fragment" -->
-* **AppImage**: Statico; richiede metadati <code>.upd_info</code> nella sezione ELF per abilitare <code>zsync</code>. <!-- .element: class="fragment" -->
+* **Flatpak via Flathub**: Repository **OSTree**; delta statici a blocchi (aggiornamenti atomici). <!-- .element: class="fragment" -->
+* **AppImage**: Statico per impostazione predefinita; richiede `.upd_info` nella sezione ELF per abilitare `zsync`. <!-- .element: class="fragment" -->
 
 <p class="fragment text-danger" style="margin-top: 25px;">
-<em>Un binario privo di canale di aggiornamento è un rischio di sicurezza permanente.</em>
+<em>Un eseguibile privo di canale di aggiornamento è un debito di sicurezza perpetuo.</em>
 </p>
 
----
+Note:
+Il paradosso del ciclo di vita del software:
+- Il formato di pacchetto e' solo una fotografia statica. Il meccanismo di aggiornamento e' una relazione continua nel tempo.
+- Quando un utente scarica un .deb o un .rpm dalle release di GitHub e lancia dpkg -i o rpm -i, quel pacchetto e' orfano: nessun repository lo conosce e non ricevera' mai patch automatiche dal sistema.
+- Flatpak risolve il problema con OSTree: gli aggiornamenti sono indicizzati per contenuto e scaricati come delta binari atomici (vengono trasferiti solo i blocchi modificati).
+- AppImage e' completamente isolato di base. L'aggiornamento richiede l'inserimento di una sezione .upd_info nell'eseguibile ELF che punti a un file di controllo zsync su un server remoto.
+- Regola fondamentale di sicurezza: distribuire un binario senza un canale di aggiornamento significa lasciare le vulnerabilita' permanentemente sulle macchine degli utenti.
 
-## Firme
+--
 
-Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli scriptlet (quando presenti) vengono eseguiti come **root**.
+## Firme: Integrità e Provenienza
+
+Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli scriptlet vengono eseguiti come **root**.
 
 | Ecosistema | Livello di Firma | Validazione a Runtime |
 |---|---|---|
 | **APT** | Metadati repo (`Release.gpg`) | Verifica obbligatoria pre-unpack |
 | **RPM** | Header pacchetto + `repomd.xml` | Verifica GPG su keyring di sistema |
 | **Flatpak** | Commit &amp; Summary in OSTree | Verifica crittografica ad ogni pull |
-| **AppImage** | Sezione ELF (`--appimage-signature`) | **Nessuna verifica automatica** a runtime |
+| **AppImage** | Blocco ELF integrato (`--appimage-signature`) | **Nessuna validazione automatica** all'avvio |
 
 <p class="fragment" style="margin-top: 25px;">
-<strong>Scenario 2026</strong>: <em>Sigstore / Keyless</em> (OIDC) per release upstream; GPG tradizionale ancora obbligatorio per i package manager di sistema.
+<strong>Realtà 2026</strong>: <em>Sigstore / Keyless</em> (OIDC) per le release upstream in CI; i keyring GPG tradizionali restano obbligatori per i package manager di sistema.
 </p>
 
----
+Note:
+Le implicazioni di sicurezza delle firme digitali:
+- Nella demo live abbiamo dovuto usare --allow-unsigned-rpm. In produzione e' un rischio critico: i pacchetti RPM e DEB possono contenere scriptlet di manutenzione eseguiti come root.
+- Installare un pacchetto non firmato equivale a lanciare curl ... | sudo bash.
+- Differenze architetturali nella verifica:
+  1. APT verifica prima i metadati del repository; i singoli file .deb sono convalidati tramite i digest sha256 nel file Release firmato.
+  2. RPM firma direttamente header e payload all'interno del file; zypper/rpm valida la firma contro le chiavi GPG del sistema.
+  3. Flatpak verifica crittograficamente i commit e i sommari OSTree a ogni pull.
+  4. AppImage supporta firme incorporate, ma l'avvio standard in spazio utente non esegue alcun controllo forzato.
+- Tendenza moderna: Sigstore e cosign abilitano provenienza keyless per le release su GitHub, ma le distribuzioni continuano a pretendere anelli di chiavi GPG.
 
-## SBOM
+--
 
-* Nei linguaggi moderni (Rust, Go): lockfile deterministico (`Cargo.lock`, `go.sum`).
-* **Nel C con CMake, il lockfile universale non esiste**:
-  * `raylib` scaricata a build time via Git (`FetchContent`, statica).
-  * Stack X11/OpenGL/glibc risolto a run-time dalla distribuzione.
+## SBOM: Il Paradosso della Supply Chain
 
-<div class="fragment callout">
-L'SBOM in C è spezzata tra build time e run time. Solo un build service con chroot isolata e osservabile (es. OBS) può tracciare l'intero albero reale delle dipendenze.
+* Nei linguaggi moderni (Rust, Go): lockfile deterministici (`Cargo.lock`, `go.sum`).
+* **Nel C con CMake, non esiste un lockfile universale**:
+  * `raylib` incorporata a build time via Git (`FetchContent`, archivio statico).
+  * Stack di sistema (X11, OpenGL, glibc) risolto dinamicamente a runtime dalla distro.
+
+<div class="fragment callout" style="margin-top: 25px;">
+<strong>Il Paradosso dell'SBOM in C</strong>: Le dipendenze sono divise tra tempo di compilazione e tempo di installazione. Un SBOM completo non si deduce dal codice sorgente: richiede l'osservazione della build dentro un build service isolato.
 </div>
 
+Note:
+La realta' dell'SBOM nel software di sistema:
+- Gli sviluppatori abituati a Rust, Go o al Python moderno danno per scontati i lockfile che bloccano ogni dipendenza transitiva a un digest crittografico.
+- Nel C con CMake non esiste alcun lockfile universale.
+- In ocio il grafo delle dipendenze e' spezzato in due meta':
+  1. Tempo di compilazione: raylib viene scaricata via Git (FetchContent) e collegata staticamente nel binario.
+  2. Tempo di esecuzione: X11, OpenGL e libc sono totalmente assenti dal repository sorgente; vengono risolti dinamicamente dall'host al momento del lancio.
+- E' impossibile generare una Software Bill of Materials accurata scansionando solo git. E' necessario catturare l'ambiente di build ermetico (SPDX / CycloneDX generati dentro OBS o Koji).
+
 ---
 
-## Sintesi
+## Sintesi: Matrice delle Responsabilità
 
 | Formato | Chi risolve le dipendenze | Accoppiamento Host | Modello |
 |---|---|---|---|
@@ -628,10 +843,19 @@ L'SBOM in C è spezzata tra build time e run time. Solo un build service con chr
 | **Container OCI** | **Immagine Userspace Completa** | Minimo (kernel/DRI) | Namespaces + cgroups |
 
 <p class="text-info" style="margin-top: 25px;">
-<em>Ogni formato sposta la responsabilità tecnica tra sviluppatore, maintainer e sistema.</em>
+<em>Ogni scelta di packaging delega e distribuisce la responsabilità tra sviluppatore, maintainer e sistema operativo.</em>
 </p>
 
----
+Note:
+La conclusione fondamentale dell'analisi dei formati:
+- Non esiste un formato universalmente "migliore". Ognuno rappresenta un compromesso ingegneristico su chi si fa carico della complessita':
+  1. Delega alla distribuzione (RPM/DEB): I maintainer e i risolutori SAT pagano il costo del packaging. Il sistema ottiene librerie condivise in RAM, payload ridotti e patch di sicurezza unificate.
+  2. Bundle a file singolo (AppImage): Lo sviluppatore paga includendo le librerie; l'utente ottiene massima semplicita' d'avvio senza installazione.
+  3. Runtime in sandbox (Flatpak): Flathub e i curatori del runtime gestiscono lo stack di base; chi impacchetta definisce i varchi dei portali.
+  4. Container (OCI): Isolamento totale, al prezzo di trasportare interi userspace di sistema operativo.
+- Conservazione della complessita': Il packaging non cancella mai la complessita', decide solo quale attore della catena deve sostenerla.
+
+--
 
 ## Metriche
 
@@ -649,32 +873,56 @@ L'SBOM in C è spezzata tra build time e run time. Solo un build service con chr
 <strong>Trade-off sistemistico:</strong> Portabilità e isolamento si pagano in tempi di inizializzazione e spazio su disco.
 </p>
 
----
+--
 
-## Limiti
+## Confini e Scelte di Scope
 
-* **Formati esclusi**:
-  * **Snap**: dipendenza da `snapd`, AppArmor accoppiato a patch kernel Ubuntu.
-  * **Nix / Guix**: store puramente funzionale (`/nix/store`), paradigma radicalmente differente.
-  * **Arch / AUR**: ricette di build per l'utente, non artefatti precompilati.
-* **Il vincolo glibc in AppImage**:
-  * Compilare su distro recente alza i simboli `GLIBC_2.XX` minimi: il bundle fallisce su sistemi più conservativi.
-  * Soluzione: build containerizzati su baseline LTS datate.
+<div class="grid-2">
+<div>
 
-<p class="text-warn" style="margin-top: 25px;">
-<em>Non sono sviste: sono i confini fisici del rilascio software su Linux.</em>
+### Cosa Abbiamo Escluso
+* **Snap**: Demone `snapd` e dipendenza da AppArmor
+* **Nix / Guix**: Store puramente funzionale (`/nix/store`)
+* **Arch / AUR**: Ricette di build, non binari distribuiti
+
+</div>
+<div>
+
+### La Trappola della GLIBC
+* AppImage compilati su distro recenti falliscono su LTS datate
+* **Soluzione**: Compilare i bundle dentro container LTS storici
+
+</div>
+</div>
+
+<p class="text-warn fragment" style="margin-top: 30px;">
+<em>Sono scelte sistemistiche e confini precisi, non dimenticanze.</em>
 </p>
 
+Note:
+Spiegare i confini deliberati del talk:
+- Snap: Richiede un demone privilegiato persistente (snapd), e' vincolato all'infrastruttura di Canonical e poggia su patch AppArmor del kernel non uniformi su tutte le distro.
+- Nix e GNU Guix: Sistemi dichiarativi affascinanti, ma il loro modello di store (/nix/store) e' un paradigma completamente a parte che merita una presentazione dedicata.
+- Arch AUR: Ricette PKGBUILD per compilare da sorgente sulla macchina utente, non distribuzione di artefatti binari pronti.
+- La lezione sulla baseline GLIBC: Ribadire che includere librerie applicative non protegge dalla libreria C dell'host. Compilare un AppImage su Tumbleweed o Fedora 41 ne impedisce l'avvio su Ubuntu 20.04 o SLE 15. La best practice industriale e' compilare dentro container Debian oldstable o CentOS 7.
+
 ---
 
-## Q&A
+## Domande e Risposte
 
 <div class="grid-2" style="align-items: center; max-width: 700px; margin: 40px auto 0 auto;">
   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&amp;data=https://michelepagot.github.io/packathon/" alt="QR Code Repository" style="border-radius: 8px; border: 2px solid rgba(255,255,255,0.3);" />
   <div>
-    <p><strong>Slide &amp; Codice:</strong></p>
+    <p><strong>Slide e Codice:</strong></p>
     <p><a href="https://michelepagot.github.io/packathon/" target="_blank">michelepagot.github.io/packathon</a></p>
     <p><a href="https://github.com/michelepagot/packathon" target="_blank">github.com/michelepagot/packathon</a></p>
-    <p class="text-success" style="margin-top: 20px;"><strong>Q&amp;A aperto</strong></p>
+    <p class="text-success" style="margin-top: 20px;"><strong>Q&amp;A Aperto</strong></p>
   </div>
 </div>
+
+Note:
+Conclusione della presentazione:
+- Ringraziare il pubblico per l'attenzione.
+- Ricordare che tutte le ricette di build in container, gli spec file e gli script di demo sono open source e riproducibili nel repository.
+- Aprire lo spazio per le domande su packaging nativo (RPM/DEB), bundle portabili (AppImage), sandbox desktop (Flatpak) o build service (OBS).
+
