@@ -136,7 +136,9 @@ if(ENABLE_CPACK)
             set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "arm64")
         endif()
     endif()
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.17), libgl1, libx11-6")
+    # dpkg-shlibdeps adds libc6 (>= ...); X11 and GLX are dlopen()ed by GLFW, so declared by hand
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libglx0, libx11-6")
     set(CPACK_DEBIAN_FILE_NAME "${CPACK_PACKAGE_NAME}_${PROJECT_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}.deb")
 
     # RPM (.rpm) specific settings

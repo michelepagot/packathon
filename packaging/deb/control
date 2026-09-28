@@ -1,0 +1,22 @@
+# Template rendered by build-deb.sh (comment lines are stripped).
+#
+# ${shlibs:Depends}  computed by dpkg-shlibdeps from DT_NEEDED + glibc symbol versions
+# libglx0, libx11-6  dlopen()ed by GLFW at runtime: invisible to DT_NEEDED, declared by hand
+# Recommends         dlopen()ed but optional: GLFW degrades gracefully without them
+#
+# Re-derive the dlopen() list after a raylib/GLFW bump (needs an X display, e.g. xvfb-run):
+#   LD_DEBUG=files ocio 2>&1 | grep 'dynamically loaded by ocio'
+# then map each file to its package with dpkg -S.
+Package: ocio
+Version: ${version}
+Architecture: ${arch}
+Section: graphics
+Priority: optional
+Maintainer: Packathon Maintainers <maintainers@packathon.org>
+Installed-Size: ${installed:Size}
+Depends: ${shlibs:Depends}, libglx0, libx11-6
+Recommends: libxcursor1, libxi6, libxinerama1, libxrandr2
+Description: Raylib interactive eye-tracking educational demo
+ Ocio is an interactive educational demonstration that tracks the mouse pointer
+ with an animated eye, illustrating real-time rendering, dynamic linker mechanics,
+ and Linux operating system packaging pipelines without high-level wrappers.

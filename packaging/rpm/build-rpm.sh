@@ -26,10 +26,23 @@ tar --exclude='.git' \
 echo "==> Copying spec file..."
 cp "${SCRIPT_DIR}/ocio.spec" "${RPM_TOPDIR}/SPECS/"
 
+# Stage raylib source tarball if vendored raylib is requested or raylib-devel is not installed
+BUILD_ARGS=("$@")
+if [[ "${BUILD_ARGS[*]:-}" == *"--with vendored_raylib"* ]] || ! pkg-config --exists raylib 2>/dev/null; then
+    RAYLIB_SRC="${RPM_TOPDIR}/SOURCES/raylib-5.5.tar.gz"
+    if [ ! -f "${RAYLIB_SRC}" ]; then
+        echo "==> Staging raylib-5.5 source tarball for hermetic/vendored build..."
+        curl -sLo "${RAYLIB_SRC}" "https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz"
+    fi
+    if [[ "${BUILD_ARGS[*]:-}" != *"--with vendored_raylib"* ]]; then
+        BUILD_ARGS+=("--with" "vendored_raylib")
+    fi
+fi
+
 echo "==> Running rpmbuild (Binary & Source RPMs)..."
 rpmbuild -ba \
     --define "_topdir ${RPM_TOPDIR}" \
-    "$@" \
+    "${BUILD_ARGS[@]}" \
     "${RPM_TOPDIR}/SPECS/ocio.spec"
 
 echo "==> Collecting generated RPMs into dist/..."
