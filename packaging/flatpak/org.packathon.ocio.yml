@@ -1,8 +1,16 @@
 app-id: org.packathon.ocio
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 command: ocio
+
+# raylib is linked statically: its headers, archive and CMake/pkg-config files
+# are build-time only and must not ship in the app.
+cleanup:
+  - /include
+  - /lib/*.a
+  - /lib/cmake
+  - /lib/pkgconfig
 
 finish-args:
   - --share=ipc

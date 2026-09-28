@@ -4,6 +4,7 @@ set -e
 # Configurable CMake options (with defaults)
 RAYLIB_MODE="${RAYLIB_MODE:-FETCH}"
 RAYLIB_SHARED="${RAYLIB_SHARED:-OFF}"
+DIST_DIR="${DIST_DIR:-/src/dist}"
 
 # CPack generator passed as first argument, or auto-detected by distro
 GENERATOR="${1:-}"
@@ -32,9 +33,9 @@ cmake --build /tmp/build --config Release -j"$(nproc)"
 cd /tmp/build
 cpack -G "${GENERATOR}"
 
-mkdir -p /src/dist
-cp -f *.tar.gz *.rpm *.deb /src/dist/ 2>/dev/null || true
-cp -f bin/ocio /src/dist/ 2>/dev/null || true
+mkdir -p "${DIST_DIR}"
+cp -f *.tar.gz *.rpm *.deb "${DIST_DIR}/" 2>/dev/null || true
+cp -f bin/ocio "${DIST_DIR}/" 2>/dev/null || true
 
-echo "==> Generated artifacts in dist/:"
-ls -lh /src/dist/
+echo "==> Generated artifacts in ${DIST_DIR}:"
+ls -lh "${DIST_DIR}/"

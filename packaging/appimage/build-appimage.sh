@@ -26,15 +26,22 @@ echo "=== 3. Packaging AppImage with appimagetool ==="
 export ARCH=x86_64
 APPIMAGE_BIN="${OUTPUT_DIR}/ocio-x86_64.AppImage"
 
+# appimagetool otherwise downloads the type2 runtime itself at every build,
+# and can hang there: fetch it once and pass it explicitly.
+RUNTIME="${BUILD_DIR}/runtime-x86_64"
+if [ ! -f "${RUNTIME}" ]; then
+    curl -sSL --max-time 120 -o "${RUNTIME}" https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
+fi
+
 if command -v appimagetool >/dev/null 2>&1; then
-    appimagetool "${APPDIR}" "${APPIMAGE_BIN}"
+    appimagetool --runtime-file "${RUNTIME}" "${APPDIR}" "${APPIMAGE_BIN}"
 else
     TOOL="${BUILD_DIR}/appimagetool"
     if [ ! -f "${TOOL}" ]; then
         curl -sLo "${TOOL}" https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
         chmod +x "${TOOL}"
     fi
-    "${TOOL}" --appimage-extract-and-run "${APPDIR}" "${APPIMAGE_BIN}"
+    "${TOOL}" --appimage-extract-and-run --runtime-file "${RUNTIME}" "${APPDIR}" "${APPIMAGE_BIN}" </dev/null
 fi
 
 echo "=== AppImage build complete! Output: ${APPIMAGE_BIN} ==="

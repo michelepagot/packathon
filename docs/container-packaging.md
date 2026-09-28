@@ -243,7 +243,7 @@ podman run --privileged --rm -v "$PWD:/src:Z" -w /src \
 ```
 This script:
 1. Adds the Flathub remote inside the container.
-2. Installs `org.freedesktop.Platform//24.08` and `org.freedesktop.Sdk//24.08`.
+2. Installs `org.freedesktop.Platform` and `org.freedesktop.Sdk` at the manifest's `runtime-version` (25.08), unless already present.
 3. Runs `flatpak-builder` to download and compile both `raylib` and `ocio`.
 4. Packages a standalone bundle `ocio.flatpak` into `./dist/`.
 

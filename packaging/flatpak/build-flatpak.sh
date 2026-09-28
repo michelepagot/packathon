@@ -9,15 +9,22 @@ REPO_DIR="${REPO_DIR:-/tmp/flatpak-repo}"
 OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/dist}"
 MANIFEST="${SCRIPT_DIR}/org.packathon.ocio.yml"
 BUNDLE="${OUTPUT_DIR}/ocio.flatpak"
+STATE_DIR="${STATE_DIR:-/tmp/flatpak-builder-state}"
+BRANCH="$(sed -n "s/^runtime-version: *'\{0,1\}\([^']*\)'\{0,1\} *$/\1/p" "${MANIFEST}")"
 
 mkdir -p "${OUTPUT_DIR}"
 
-echo "=== 1. Configuring Flathub remote and installing SDK/Runtime ==="
-flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install -y --user --noninteractive flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+echo "=== 1. SDK/Runtime ${BRANCH}: install from Flathub unless already present ==="
+if flatpak info "org.freedesktop.Platform//${BRANCH}" >/dev/null 2>&1 &&
+   flatpak info "org.freedesktop.Sdk//${BRANCH}" >/dev/null 2>&1; then
+    echo "already installed"
+else
+    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y --user --noninteractive flathub "org.freedesktop.Platform//${BRANCH}" "org.freedesktop.Sdk//${BRANCH}"
+fi
 
 echo "=== 2. Building application with flatpak-builder ==="
-flatpak-builder --user --force-clean --repo="${REPO_DIR}" "${BUILD_DIR}" "${MANIFEST}"
+flatpak-builder --user --force-clean --state-dir="${STATE_DIR}" --repo="${REPO_DIR}" "${BUILD_DIR}" "${MANIFEST}"
 
 echo "=== 3. Exporting single-file Flatpak bundle ==="
 flatpak build-bundle "${REPO_DIR}" "${BUNDLE}" org.packathon.ocio
