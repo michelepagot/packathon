@@ -40,7 +40,7 @@ elseif(RAYLIB_MODE STREQUAL "LOCAL")
     endif()
 elseif(RAYLIB_MODE STREQUAL "FETCH")
     include(FetchContent)
-    set(RAYLIB_VERSION 5.5)
+    set(RAYLIB_VERSION 6.0)
     message(STATUS "Fetching raylib from GitHub via FetchContent (${RAYLIB_VERSION})...")
     FetchContent_Declare(
         raylib
