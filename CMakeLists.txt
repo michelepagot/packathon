@@ -40,18 +40,15 @@ elseif(RAYLIB_MODE STREQUAL "LOCAL")
     endif()
 elseif(RAYLIB_MODE STREQUAL "FETCH")
     include(FetchContent)
-    message(STATUS "Fetching raylib from GitHub via FetchContent (v5.5)...")
+    set(RAYLIB_VERSION 6.0)
+    message(STATUS "Fetching raylib from GitHub via FetchContent (${RAYLIB_VERSION})...")
     FetchContent_Declare(
         raylib
         GIT_REPOSITORY https://github.com/raysan5/raylib.git
-        GIT_TAG 5.5
+        GIT_TAG ${RAYLIB_VERSION}
         GIT_SHALLOW TRUE
     )
-    FetchContent_GetProperties(raylib)
-    if(NOT raylib_POPULATED)
-        FetchContent_Populate(raylib)
-        add_subdirectory(${raylib_SOURCE_DIR} ${raylib_BINARY_DIR} EXCLUDE_FROM_ALL)
-    endif()
+    FetchContent_MakeAvailable(raylib)
 else()
     message(FATAL_ERROR "Unknown RAYLIB_MODE='${RAYLIB_MODE}'. Valid choices are: FETCH, SYSTEM, LOCAL.")
 endif()
