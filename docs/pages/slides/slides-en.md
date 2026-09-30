@@ -148,11 +148,18 @@ cannot open shared object file: No such file or directory
 ```
 <!-- .element: class="fragment" -->
 
+<div class="center-card fragment">
+  <img src="image/rabbit_hole_2.jpeg" alt="Down the rabbit hole" style="max-height: 360px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);" />
+</div>
+
 Note:
 Ask the audience the exit code: 127.
 
 Test command in minimal container:
 $ podman run --rm -v ./build/bin/ocio:/ocio:ro,Z registry.opensuse.org/opensuse/tumbleweed:latest /ocio
+
+Reveal the rabbit hole fragment:
+"Welcome down the dependency rabbit hole: you compiled cleanly, but runtime immediately fails."
 
 Stage handoff:
 "We built the binary, put it on a USB drive or downloaded it from GitHub, and ran it on a clean system. Immediate runtime failure.
@@ -171,12 +178,60 @@ Let us look at what actually happens under the hood when Linux launches a binary
 4. `main()`
 
 Note:
-The exact execution sequence of an ELF on Linux:
-1. The shell finds the binary through $PATH.
-2. The kernel calls execve(), maps the ELF, and hands control to the interpreter (ld.so). The kernel succeeded without errors!
-3. The dynamic linker (in userspace) scans the DT_NEEDED entries.
-And here is the revelation: failing to find libOpenGL.so.0, ld.so prints the error and invokes exit_group(127).
-4. main() is never reached. Our C code never executed a single instruction.
+What actually happens at launch:
+"When an executable is launched, execution does not start in main(). The operating system's only role is to load the binary into memory and pass control to userspace helper software: the dynamic linker (ld.so). The dynamic linker is responsible for loading all required shared libraries before handing control over to our C code. If even a single library is missing, ld.so terminates the process immediately with exit code 127. The kernel did not fail, and our code did not crash—it never had the chance to execute a single instruction."
+
+Under the hood:
+1. Shell: locates `/usr/bin/ocio` via `$PATH` (`command -v ocio`).
+2. Kernel: `execve()` maps the ELF and reads `PT_INTERP` (the string `/lib64/ld-linux-x86-64.so.2` from the `.interp` section). The kernel sets up the initial stack, writes the Auxiliary Vector (auxv: AT_PHDR, AT_ENTRY, AT_BASE), and points RIP directly to `ld.so`. The kernel succeeded with return code 0!
+   (Contrast: if the interpreter path itself does not exist on disk, execve fails immediately in the kernel with ENOENT: "cannot execute: required file not found").
+3. Dynamic Linker (`ld.so` in userspace): walks `DT_NEEDED` in strict search order (RPATH -> LD_LIBRARY_PATH -> RUNPATH -> /etc/ld.so.cache -> /lib64). Failing to open `libOpenGL.so.0` after repeated `openat()` attempts, `ld.so` prints the error and invokes syscall `exit_group(127)`.
+4. `main()`: never reached.
+
+Showcase command:
+`readelf -p .interp ./ocio` (shows the dynamic linker path baked into the ELF)
+
+Bridge to the next slide:
+"Let us inspect the binary directly and see what the dynamic linker was looking for."
+
+--
+
+## Following libOpenGL.so.0
+
+```text
+$ readelf -d ocio | grep NEEDED
+ (NEEDED)  Shared library: [libm.so.6]
+ (NEEDED)  Shared library: [libOpenGL.so.0]
+ (NEEDED)  Shared library: [libGLX.so.0]
+ (NEEDED)  Shared library: [libc.so.6]
+```
+
+```text
+$ ldd ./ocio
+    linux-vdso.so.1 (0x00007ffe315f6000)
+    libm.so.6 => /lib64/libm.so.6 (0x00007f9c8f2b0000)
+    libOpenGL.so.0 => not found
+    libGLX.so.0 => not found
+    libc.so.6 => /lib64/libc.so.6 (0x00007f9c8f0b0000)
+    /lib64/ld-linux-x86-64.so.2 (0x00007f9c8f3b0000)
+```
+<!-- .element: class="fragment" -->
+
+Note:
+Declared requirements vs. Host reality:
+"How do we diagnose what went wrong?
+`readelf -d` inspects the binary file itself to see what dependencies were recorded when it was compiled.
+`ldd` asks the dynamic linker to simulate resolving those dependencies on the current host system.
+On the build system, all dependencies were present in the local cache. On the target system, the required libraries are absent, so ldd reports 'not found'."
+
+Under the hood:
+1. `readelf -d` directly reads the `.dynamic` section: `DT_NEEDED` records the dynamic dependencies registered by the linker. Notice Raylib is not listed because in our default build it is statically embedded into `.text`. But Raylib's GLFW backend pulls in `libOpenGL.so.0` and `libGLX.so.0` (libglvnd, not legacy libGL).
+2. `ldd` is a shell script wrapper executing `ld.so` with `LD_TRACE_LOADED_OBJECTS=1`. It searches the host filesystem and `/etc/ld.so.cache`.
+   Result: `libOpenGL.so.0` and `libGLX.so.0` are reported as "not found".
+
+Showcase commands:
+`readelf -d ./ocio | grep NEEDED` (the compile-time dependency list)
+`ldd ./ocio` (the host-time resolution check)
 
 Bridge to the next slide:
 "How is this possible? On the development machine it compiled without warnings and ran smoothly. How can a compiler produce a binary that dies before entering main()?"
@@ -209,42 +264,20 @@ Bridge to the next slide:
 </p>
 
 Note:
-Compiling cleanly does not mean having a self-sufficient application.
-- At build-time, only declarations (headers) and symbol stubs are needed to produce the ELF.
-- At runtime, concrete shared libraries (.so), the display server, and GPU drivers are required.
-In C, a dynamically linked binary is an incomplete contract that must be fulfilled by the host machine at runtime.
+The build-time vs runtime contract:
+"Why did the binary compile cleanly if it cannot run?
+At build time, the compiler only needs header files (.h) to verify function signatures and symbol stubs to compute relocation offsets. It does not verify that functional shared libraries will be present on the target host.
+At runtime, the binary requires the concrete shared libraries (.so), an active display server (X11 or Wayland), and hardware GPU driver modules."
 
-Bridge to the next slide:
-"If the binary is an incomplete contract... how do we verify exactly what this binary requires and what is missing on the host machine?"
+Why not link 100% statically (`gcc -static`) like Go or Rust?
+- We tested this exact experiment (Variant 7): GNU ld refuses immediately with: `attempted static link of dynamic object '/usr/lib64/libOpenGL.so'`.
+- `libglvnd` provides no static `.a` archives on Linux distributions.
+- More fundamentally: desktop GPU drivers on Linux are dynamic dispatchers. Hardware DRI drivers (Mesa: `iris_dri.so`, `radeonsi_dri.so`, `nvidia.so`) must be detected and loaded dynamically via `dlopen()` at runtime to match whatever graphics card is physically installed in the machine.
+- Static glibc also breaks dynamic NSS plugins (`/etc/nsswitch.conf`).
+- Takeaway: A desktop GUI application on Linux cannot be 100% static. In C, a dynamically linked binary is an incomplete contract that must be fulfilled by the host OS.
 
---
-
-## Following libOpenGL.so.0
-
-```text
-$ readelf -d ocio | grep NEEDED
- (NEEDED)  Shared library: [libm.so.6]
- (NEEDED)  Shared library: [libOpenGL.so.0]
- (NEEDED)  Shared library: [libGLX.so.0]
- (NEEDED)  Shared library: [libc.so.6]
-```
-
-```text
-$ ldd ./ocio
-    linux-vdso.so.1 (0x00007ffe315f6000)
-    libm.so.6 => /lib64/libm.so.6 (0x00007f9c8f2b0000)
-    libOpenGL.so.0 => not found
-    libGLX.so.0 => not found
-    libc.so.6 => /lib64/libc.so.6 (0x00007f9c8f0b0000)
-    /lib64/ld-linux-x86-64.so.2 (0x00007f9c8f3b0000)
-```
-<!-- .element: class="fragment" -->
-
-Note:
-How does this incomplete contract manifest?
-1. readelf -d directly inspects the ELF header: DT_NEEDED records everything the compiler registered as dynamic dependencies.
-2. ldd simulates the dynamic linker (ld.so) on the host: it searches the filesystem for each library.
-Result: libOpenGL.so.0 and libGLX.so.0 are "not found".
+Showcase command:
+`gmake -C build-07-attempt-static 2>&1 | grep "attempted static link"` (shows GNU ld refusing static OpenGL)
 
 Bridge to Formats:
 "The binary requires these libraries, but the host system does not have them. How do we ship them alongside the program or ensure they are installed?
@@ -274,10 +307,6 @@ Transition to Route 1: we will focus in depth on the Big 4 Desktop Formats (RPM,
 * Archive with dependency metadata
 * Enterprise &amp; distro standard (LSB)
 
-<p class="fragment text-info" style="margin-top: 35px;">
-<strong>Superpower:</strong> Delegates dependency resolution to the OS graph solver.
-</p>
-
 Note:
 Introducing RPM:
 - Origin: Created in 1997 by Marc Ewing and Erik Troan (Red Hat).
@@ -285,9 +314,8 @@ Introducing RPM:
 - Adoption: The reference standard for openSUSE, SLE, Fedora, and RHEL (LSB standard).
 - Daily CLI:
   * Inspect: rpm -qlp (files) and rpm -qp --requires (dependencies)
-  * Install with solver: zypper in or dnf in
+  * Install with package manager: zypper in or dnf in
   * Audit integrity: rpm -V (detects files altered compared to stored database digests)
-- Superpower: Delegates to the distro's SAT graph solver.
 Next we look at what is physically inside the .rpm file on disk.
 
 --
@@ -308,6 +336,10 @@ ocio-0.1.0-1.x86_64.rpm: RPM v3.0 bin i386/x86_64
 ```text
 $ rpm2cpio ocio-0.1.0-1.x86_64.rpm | file -
 /dev/stdin: ASCII cpio archive (SVR4 with no CRC)
+```
+<!-- .element: class="fragment" -->
+
+```text
 $ rpm2cpio ocio-0.1.0-1.x86_64.rpm | cpio -idmv
 ./usr/bin/ocio
 ./usr/share/applications/ocio.desktop
@@ -431,6 +463,25 @@ Compare this directly to our initial crash:
 - Notice the transitive resolution: the loader also resolved the secondary dependencies pulled in by libglvnd (libGLdispatch, libX11, libxcb).
 - The delegation cost: to install our 486 KB package, the SAT solver (libsolv) selected 36 packages from the repository for a total download of 52.6 MiB.
 - The userspace contract is now fully satisfied by the distribution.
+
+--
+
+## How 1 Became 36: libsolv
+
+* <!-- .element: class="fragment" --> **Local rule**: `.spec` only declares `Requires: libOpenGL.so.0`
+* <!-- .element: class="fragment" --> **Global puzzle**: 30,000+ packages with versions, providers, and conflicts
+* <!-- .element: class="fragment" --> **The brain**: `zypper` / `dnf` delegates to **`libsolv`**
+* <!-- .element: class="fragment" --> **Boolean SAT**: converts constraints into propositional logic &rarr; solves in milliseconds
+
+Note:
+Why did our single package pull in 35 additional packages?
+- The spec file only has local vision: it declares "Requires: libOpenGL.so.0".
+- It does not know who provides it, which version to pick, or what dependencies that choice cascades into.
+- The low-level rpm binary cannot solve this: raw rpm -i would just fail with "missing dependency".
+- Frontends (Zypper in openSUSE, DNF in Fedora/RHEL) hand the entire repository catalog to libsolv.
+- libsolv translates package relationships into a Boolean SAT formula (Package A requires B -> (NOT A OR B)).
+- In milliseconds, the SAT engine calculates the unique, conflict-free package combination.
+- The board game analogy: the spec writes the rules of how pieces move; libsolv is the chess engine calculating the valid game.
 
 --
 
@@ -577,36 +628,20 @@ Recap: every bullet refers directly to what the audience has just witnessed:
 
 ## AppImage: Portable Single-File
 
-<div class="grid-2">
-<div>
-
-### What It Is
-* One app = one executable file
 * *Simon Peter* (2004 *klik*, 2011)
-* Zero installation, no root needed
-
-</div>
-<div>
-
-### Daily CLI
-* **Run**: `chmod +x ./file.AppImage && ./file.AppImage`
-* **Extract**: `./file.AppImage --appimage-extract`
-* **Fallback**: Runs without FUSE via extracted root
-
-</div>
-</div>
-
-<p class="fragment text-info" style="margin-top: 30px;">
-<strong>Superpower:</strong> Instant portability via userspace FUSE mount.
-<br><span class="text-warn">The Catch:</span> Bundles apps, not glibc ("build on oldest target distro").
-</p>
+* One app = one executable file
+* Distro-agnostic portability, zero install (no root)
 
 Note:
-Introduce AppImage via the 4-lens framework:
-1. What it is: Created by Simon Peter (probono) in 2004 under the name klik, rebranded in 2011 to AppImage. Core concept: an application should be a single double-clickable file.
-2. Superpower: Instant portability. Requires zero privileges, leaves no trace in system directories, and runs entirely in userspace using FUSE.
-3. Common workflow: Download, chmod +x, run. When FUSE is unavailable (e.g. inside locked containers), --appimage-extract provides an immediate fallback.
-4. The GLIBC paradox: AppImage bundles application libraries, but depends on the host's glibc and kernel. If built on a cutting-edge distro, newer GLIBC symbol versions prevent it from running on older distros. The golden rule: build on the oldest distro you plan to support.
+Introducing AppImage:
+- Origin: Created in 2004 by Simon Peter (probono) as klik, rebranded in 2011 as AppImage.
+- Nature: An application packaged as a single executable file containing its dependencies and an embedded SquashFS image.
+- Adoption: De facto upstream format for standalone portable Linux desktop applications (no root required).
+- Daily CLI:
+  * Run: chmod +x ./file.AppImage && ./file.AppImage
+  * Extract / Fallback: ./file.AppImage --appimage-extract (runs without FUSE)
+- The GLIBC catch: Bundles application libraries, but relies on the host's glibc and kernel. The golden rule: build on the oldest distro you plan to support.
+Next we look at what is physically inside the AppImage file on disk.
 
 --
 
@@ -858,19 +893,25 @@ The grand conclusion of the format analysis:
 
 ## Metrics
 
-| Solution | Disk Footprint (Payload + Deps) | Cold Startup Overhead |
-|---|---|---|
-| **Raw Binary** | *[TBD: size MB]* | 0 ms (Baseline: *[TBD ms]*) |
-| **Native .rpm / .deb** | *[TBD: size KB]* (+ host libraries) | ~0 ms (Shared in pagecache) |
-| **Standalone Tarball** | *[TBD: size MB]* | ~0 ms |
-| **AppImage** | *[TBD: size MB]* | +*[TBD ms]* (FUSE &amp; SquashFS) |
-| **Flatpak** | *[TBD: size MB]* (+ ~500 MB base) | +*[TBD ms]* (bwrap &amp; IPC portals) |
-| **OCI Container** | *[TBD: size MB]* | +*[TBD ms]* (Overlayfs &amp; rootless) |
-| **Source Build** | *[TBD: size MB]* (+ toolchain) | 0 ms (post-compilation) |
+| Format | Artifact | Installed | Host Closure | Startup (CLI / GUI) | RAM |
+|---|---|---|---|---|---|
+| **Raw Binary** | 1.2 MB | 1.2 MB | | 3.8 ms / 123 ms *(base)* | 78 MiB |
+| **RPM** | 486 KB | 1.27 MB | 36 pkgs / 226 MiB | = native | 78 MiB |
+| **DEB** | 436 KB | 1.26 MB | 41 pkgs / 217 MB | = native | 78 MiB |
+| **AppImage** | 1.44 MB | 1.44 MB | Host GL/X11 + FUSE | +10 ms / +5 ms | 83 MiB |
+| **Flatpak** | 480 KB | 1.2 MB | ~1.1 GB runtime | +113 ms / +124 ms | 90 MiB |
+<!-- .element: style="font-size: 0.68em; line-height: 1.2;" -->
 
-<p style="margin-top: 25px;">
-<strong>Systems trade-off:</strong> Portability and sandboxing come at the cost of cold-start latency and duplicate disk space.
-</p>
+Note:
+Empirical measurements from the spike benchmark (warm cache, medians under Xvfb + llvmpipe):
+- Systems trade-off: Delegation minimizes payload and startup by relying on the host OS; sandboxing buys portability at the price of launcher latency and runtime duplication.
+- Measurement conditions: Flatpak startup toll (+113 ms) is dominated by the launcher: D-Bus proxy & helpers (namespaces: ~6 ms). Measured warm-cache under Xvfb/llvmpipe.
+- Disk delegation paradox: A 486 KB RPM or 436 KB DEB asks the host for ~220 MiB of dependencies (roughly 450x its own size). Delegation does not eliminate dependencies; it shifts them to packages shared across the system.
+- Flatpak runtime: The 480 KB bundle requires a ~1.1 GB runtime (Platform 669 MB + GL 462 MB), shared per branch and deduplicated by OSTree.
+- AppImage floppy callback: At 1.44 MB (1,444,344 bytes), the AppImage fits on the physical 1.44 MB floppy disk from the opening gag! But it fits only because it bundles nothing but the app: OpenGL, X11, and glibc still come from the host.
+- Startup overhead: AppImage adds only ~10 ms (CLI) and ~5 ms (GUI), virtually imperceptible. Flatpak adds a fixed toll of ~115 ms. Crucially, kernel namespaces account for only ~6 ms of that (bare bwrap: 9.7 vs 4.0 ms); the rest is the flatpak run orchestration (3 bwrap stages, xdg-dbus-proxy, session helpers, D-Bus round trips).
+- RAM: Memory footprint is nearly identical across all formats (78 to 90 MiB PSS, within 15%). Software Mesa (llvmpipe) dominates everything; the packaging format barely impacts runtime RAM.
+- Core takeaway: There is no cost-free packaging on Linux. You choose which actor in the supply chain bears the burden.
 
 --
 
