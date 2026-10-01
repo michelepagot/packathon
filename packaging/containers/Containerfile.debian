@@ -14,8 +14,7 @@
 #   2. Build with custom options (RAYLIB_MODE, RAYLIB_SHARED):
 #      # Build with shared raylib (libraylib.so):
 #      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-debian:builder
-#      # Build using system raylib package (fails if libraylib-dev not installed):
-#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=SYSTEM localhost/packathon-debian:builder
+#      # No RAYLIB_MODE=SYSTEM here: Debian does not package raylib (bookworm, trixie).
 #      # Build using pre-staged local source (offline/hermetic, no network):
 #      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-debian:builder
 #
@@ -96,27 +95,6 @@ RUN chmod +x /usr/local/bin/build-package.sh
 # Default action when run with volume mount (-v "$PWD:/src:Z"):
 # Runs /usr/local/bin/build-package.sh, which compiles in an isolated /tmp/build scratchpad
 # and exports generated packages to /src/dist/ (configurable via RAYLIB_MODE and RAYLIB_SHARED).
-CMD ["/usr/local/bin/build-package.sh"]
-
-
-# -----------------------------------------------------------------------------
-# STAGE 1b: Builder with System Raylib (Inherits builder + installs raylib to /usr/local)
-# -----------------------------------------------------------------------------
-FROM builder AS builder-system
-
-LABEL org.opencontainers.image.title="Packathon Debian Builder (System Raylib)" \
-      org.opencontainers.image.description="Build-time environment with pre-installed raylib in /usr/local for RAYLIB_MODE=SYSTEM"
-
-# Build and install raylib system-wide strictly in this specialized stage only
-RUN git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git /tmp/raylib-build && \
-    cmake -S /tmp/raylib-build -B /tmp/raylib-build/build -DBUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build /tmp/raylib-build/build -j$(nproc) && \
-    cmake --install /tmp/raylib-build/build && \
-    rm -rf /tmp/raylib-build && \
-    ldconfig
-
-ENV RAYLIB_MODE=SYSTEM
-
 CMD ["/usr/local/bin/build-package.sh"]
 
 

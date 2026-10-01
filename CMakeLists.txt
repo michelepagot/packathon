@@ -25,9 +25,13 @@ else()
 endif()
 
 # Raylib dependency acquisition
+set(RAYLIB_VERSION 5.5)
+
 if(RAYLIB_MODE STREQUAL "SYSTEM")
-    message(STATUS "Searching for system-installed raylib (RAYLIB_MODE=SYSTEM)...")
-    find_package(raylib REQUIRED)
+    message(STATUS "Searching for system-installed raylib ${RAYLIB_VERSION} (RAYLIB_MODE=SYSTEM)...")
+    # EXACT: raylib's version file accepts any newer release, so without it a
+    # distro raylib 6.0 would silently replace the 5.5 the code is written for
+    find_package(raylib ${RAYLIB_VERSION} EXACT REQUIRED)
 elseif(RAYLIB_MODE STREQUAL "LOCAL")
     message(STATUS "Using local pre-staged raylib source (RAYLIB_MODE=LOCAL)...")
     if(EXISTS "${CMAKE_BINARY_DIR}/_deps/raylib-src/CMakeLists.txt")
@@ -40,7 +44,6 @@ elseif(RAYLIB_MODE STREQUAL "LOCAL")
     endif()
 elseif(RAYLIB_MODE STREQUAL "FETCH")
     include(FetchContent)
-    set(RAYLIB_VERSION 5.5)
     message(STATUS "Fetching raylib from GitHub via FetchContent (${RAYLIB_VERSION})...")
     FetchContent_Declare(
         raylib

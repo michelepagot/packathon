@@ -60,7 +60,7 @@ cmake --build build --config Release
 
 | Option | Default | Effect |
 |---|---|---|
-| `RAYLIB_MODE` | `FETCH` | Where raylib comes from: `FETCH` (GitHub, pinned to 5.5), `SYSTEM` (installed package), `LOCAL` (pre-staged source in `build/_deps/raylib-src`, used for offline builds such as Flatpak) |
+| `RAYLIB_MODE` | `FETCH` | Where raylib comes from: `FETCH` (GitHub, pinned to 5.5), `SYSTEM` (installed package, must be exactly the pinned version; Debian doesn't package raylib), `LOCAL` (pre-staged source in `build/_deps/raylib-src`, used for offline builds such as Flatpak) |
 | `RAYLIB_SHARED` | `OFF` | Link raylib as a shared library instead of statically |
 | `ENABLE_CPACK` | `ON` | Generate the CPack configuration (TGZ, DEB, RPM, ZIP) |
 

@@ -40,15 +40,20 @@ For more detail, see:
 
 ## Quick start
 
-To try `ocio` without building anything, pull the published runtime image:
+Grab the prebuilt binary from the [latest release](https://github.com/michelepagot/packathon/releases/latest):
 
 ```bash
-podman run --rm ghcr.io/michelepagot/packathon/opensuse:latest --version   # or .../debian:latest
+# Download and run. Hopefully it works. Maybe not.
+curl -L https://github.com/michelepagot/packathon/releases/latest/download/ocio-0.1.0-Linux-x86_64.tar.gz | tar xz
+./ocio-0.1.0-Linux/bin/ocio
+
+# If it does not work... well, that is the point of this talk.
 ```
 
-To open the GUI from the container, see [Running the GUI](docs/container-packaging.md) for the display and `/dev/dri` pass-through flags.
+The tarball ships the binary and nothing else: the libraries it needs are whatever your system happens to have.
+The same release page has the routes that take care of that: `.rpm`, `.deb`, AppImage and Flatpak, plus Windows and macOS builds.
 
-Artifacts are written to `dist/`. The CPack builds and `build-deb.sh` run inside containers and need only `podman`. The other recipes use host tools: `rpmbuild` and a C toolchain for the RPM, a C toolchain for the AppImage, and `flatpak-builder` for the Flatpak.
+To build them yourself instead, every recipe writes its artifacts to `dist/`. The CPack builds and `build-deb.sh` run inside containers and need only `podman`. The other recipes use host tools: `rpmbuild` and a C toolchain for the RPM, a C toolchain for the AppImage, and `flatpak-builder` for the Flatpak.
 
 ```bash
 # Native packages via CPack, in the matching builder container

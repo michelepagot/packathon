@@ -14,7 +14,7 @@
 #   2. Build with custom options (RAYLIB_MODE, RAYLIB_SHARED):
 #      # Build with shared raylib (libraylib.so):
 #      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-opensuse:builder
-#      # Build using system raylib package (fails if raylib-devel not installed):
+#      # Build using the distro raylib-devel (fails unless its version matches RAYLIB_VERSION):
 #      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=SYSTEM localhost/packathon-opensuse:builder
 #      # Build using pre-staged local source (offline/hermetic, no network):
 #      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-opensuse:builder
@@ -61,6 +61,11 @@ RUN zypper --non-interactive refresh && \
         libXi-devel \
         Mesa-libGL-devel \
         alsa-devel \
+        # [Distro raylib for RAYLIB_MODE=SYSTEM]
+        # The only ocio dependency in the image: FETCH/LOCAL builds ignore it.
+        # Tumbleweed is rolling, so its version depends on when the image was
+        # built; CMake stops SYSTEM builds unless it matches RAYLIB_VERSION.
+        raylib-devel \
         # [Packaging Tools]
         rpm-build \
         flatpak \
@@ -92,24 +97,6 @@ RUN chmod +x /usr/local/bin/build-package.sh
 # Default action when run with volume mount (-v "$PWD:/src:Z"):
 # Runs /usr/local/bin/build-package.sh, which compiles in an isolated /tmp/build scratchpad
 # and exports generated packages to /src/dist/ (configurable via RAYLIB_MODE and RAYLIB_SHARED).
-CMD ["/usr/local/bin/build-package.sh"]
-
-
-# -----------------------------------------------------------------------------
-# STAGE 1b: Builder with System Raylib (Inherits builder + adds raylib-devel)
-# -----------------------------------------------------------------------------
-FROM builder AS builder-system
-
-LABEL org.opencontainers.image.title="Packathon openSUSE Builder (System Raylib)" \
-      org.opencontainers.image.description="Build-time environment with pre-installed raylib-devel for RAYLIB_MODE=SYSTEM"
-
-# Install raylib-devel strictly in this specialized stage only
-RUN zypper --non-interactive in --no-recommends raylib-devel && \
-    zypper clean -a && \
-    rm -rf /var/cache/zypp/*
-
-ENV RAYLIB_MODE=SYSTEM
-
 CMD ["/usr/local/bin/build-package.sh"]
 
 

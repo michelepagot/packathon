@@ -50,8 +50,8 @@ set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
 To adhere to official upstream distribution standards (openSUSE, Fedora) without CPack abstractions, the project provides a canonical RPM spec file: [`packaging/rpm/ocio.spec`](../packaging/rpm/ocio.spec).
 
 ### Key Architectural Advantages
-1. **Unbundling Policy**: Links against distro-provided shared library (`libraylib.so.600`), yielding a compact **38 KB** RPM instead of a statically bundled megabyte package.
-2. **Automatic Shared Library Dependencies**: RPM's `find-requires` scans ELF `DT_NEEDED` headers and automatically generates package requirements (`libraylib.so.600()(64bit)`, `libc.so.6`, `libm.so.6`).
+1. **Unbundling Policy**: Links against distro-provided shared library (`libraylib.so.550` for raylib 5.5), yielding a compact **38 KB** RPM instead of a statically bundled megabyte package.
+2. **Automatic Shared Library Dependencies**: RPM's `find-requires` scans ELF `DT_NEEDED` headers and automatically generates package requirements (`libraylib.so.550()(64bit)`, `libc.so.6`, `libm.so.6`).
 3. **Debuginfo Splitting**: Automatically extracts symbols into separate `ocio-debuginfo` and `ocio-debugsource` RPM packages.
 4. **Multi-Source Support**: Provides `%bcond_with vendored_raylib` to support hermetic, air-gapped builds for OBS/Koji environments.
 
@@ -59,9 +59,11 @@ To adhere to official upstream distribution standards (openSUSE, Fedora) without
 ```bash
 # Using the helper script inside the openSUSE builder container:
 podman run --rm -v "$PWD:/src:Z" -w /src \
-  localhost/packathon-opensuse:builder-system \
+  localhost/packathon-opensuse:builder \
   ./packaging/rpm/build-rpm.sh
 ```
+The spec requires `raylib-devel = 5.5` (the `raylib_version` macro, kept equal to `RAYLIB_VERSION` in `CMakeLists.txt`).
+If the distro ships another version, `build-rpm.sh` falls back to `--with vendored_raylib`, which links raylib statically: the RPM is then bigger and has no `libraylib` requirement.
 Outputs in `./dist/`:
 - `ocio-0.1.0-1.x86_64.rpm` (Binary package, 38 KB)
 - `ocio-0.1.0-1.src.rpm` (Source package / SRPM, 69 KB)

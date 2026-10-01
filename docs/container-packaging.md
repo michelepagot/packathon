@@ -15,11 +15,9 @@ To prevent dependency creep and maintain strict control over required toolchains
 | Ecosystem | Stage | Image (published on GHCR / local tag) | Purpose | Minimal Package Set |
 |---|---|---|---|---|
 | **openSUSE** | `runtime` | `ghcr.io/michelepagot/packathon/opensuse:latest`<br>*(Local: `localhost/packathon-opensuse:runtime`)* | Running the `ocio` GUI application | `libX11-6`, `Mesa-libGL1`, `libGLU1`, `libasound2` *(zero compilers, zero devel headers)* |
-| **openSUSE** | `builder` | *Local: `localhost/packathon-opensuse:builder`* | General builds (`FETCH`, `LOCAL`), CPack RPM, AppImage, Flatpak | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `curl`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `rpm-build`, `flatpak`, `flatpak-builder`, `appimagetool` *(zero raylib-devel)* |
-| **openSUSE** | `builder-system` | *Local: `localhost/packathon-opensuse:builder-system`* | Distro-style unbundled builds (`RAYLIB_MODE=SYSTEM`, manual `rpmbuild`) | Inherits from `builder` + `raylib-devel`, `libraylib600` |
+| **openSUSE** | `builder` | *Local: `localhost/packathon-opensuse:builder`* | All builds (`FETCH`, `LOCAL`, `SYSTEM`), CPack RPM, manual `rpmbuild`, AppImage, Flatpak | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `curl`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `raylib-devel`, `rpm-build`, `flatpak`, `flatpak-builder`, `appimagetool` |
 | **Debian** | `runtime` | `ghcr.io/michelepagot/packathon/debian:latest`<br>*(Local: `localhost/packathon-debian:runtime`)* | Running the `ocio` GUI application | `libx11-6`, `libgl1`, `libglu1-mesa`, `libglx-mesa0`, `libasound2` *(zero compilers, zero dev headers)* |
-| **Debian** | `builder` | *Local: `localhost/packathon-debian:builder`* | General builds (`FETCH`, `LOCAL`), CPack DEB, AppImage, Flatpak | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `curl`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev`, `flatpak`, `flatpak-builder`, `appimagetool` *(zero raylib dev headers)* |
-| **Debian** | `builder-system` | *Local: `localhost/packathon-debian:builder-system`* | Distro-style builds (`RAYLIB_MODE=SYSTEM`) | Inherits from `builder` + pre-compiled Raylib 5.5 in `/usr/local` |
+| **Debian** | `builder` | *Local: `localhost/packathon-debian:builder`* | General builds (`FETCH`, `LOCAL`), CPack DEB, AppImage, Flatpak | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `curl`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev`, `flatpak`, `flatpak-builder`, `appimagetool` *(no raylib: Debian doesn't package it, so no `SYSTEM` mode)* |
 
 ---
 
@@ -32,8 +30,8 @@ The builder images are never pushed, so you always build them locally.
 |---|---|---|
 | openSUSE `runtime` | `ghcr.io/michelepagot/packathon/opensuse:latest` | `localhost/packathon-opensuse:runtime` |
 | Debian `runtime` | `ghcr.io/michelepagot/packathon/debian:latest` | `localhost/packathon-debian:runtime` |
-| openSUSE `builder` / `builder-system` | no | `localhost/packathon-opensuse:builder` / `:builder-system` |
-| Debian `builder` / `builder-system` | no | `localhost/packathon-debian:builder` / `:builder-system` |
+| openSUSE `builder` | no | `localhost/packathon-opensuse:builder` |
+| Debian `builder` | no | `localhost/packathon-debian:builder` |
 
 Published runtime images are also tagged `main` and `sha-<commit>`. Use a `sha-` tag to pin a specific build.
 
@@ -50,25 +48,19 @@ Each `podman build --target <stage>` builds only that stage and the stages it de
 
 ### openSUSE Tumbleweed Images
 ```bash
-# 1. General builder (FETCH and LOCAL packaging modes, CPack RPM, AppImage, Flatpak)
+# 1. Builder (every raylib mode, CPack RPM, manual rpmbuild, AppImage, Flatpak)
 podman build --target builder -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse .
 
-# 2. builder-system (SYSTEM mode and manual rpmbuild): builder + distro raylib-devel
-podman build --target builder-system -t localhost/packathon-opensuse:builder-system -f packaging/containers/Containerfile.opensuse .
-
-# 3. Minimal runtime (runs the GUI): compiles ocio in the builder stage, keeps only the binary
+# 2. Minimal runtime (runs the GUI): compiles ocio in the builder stage, keeps only the binary
 podman build --target runtime -t localhost/packathon-opensuse:runtime -f packaging/containers/Containerfile.opensuse .
 ```
 
 ### Debian Bookworm Images
 ```bash
-# 1. General builder (FETCH and LOCAL packaging modes, CPack DEB, AppImage, Flatpak)
+# 1. Builder (FETCH and LOCAL modes, CPack DEB, AppImage, Flatpak)
 podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
 
-# 2. builder-system (SYSTEM mode): builder + raylib 5.5 compiled into /usr/local
-podman build --target builder-system -t localhost/packathon-debian:builder-system -f packaging/containers/Containerfile.debian .
-
-# 3. Minimal runtime (runs the GUI): compiles ocio in the builder stage, keeps only the binary
+# 2. Minimal runtime (runs the GUI): compiles ocio in the builder stage, keeps only the binary
 podman build --target runtime -t localhost/packathon-debian:runtime -f packaging/containers/Containerfile.debian .
 ```
 
@@ -81,8 +73,8 @@ podman images 'localhost/packathon-*'
 # Layer caching makes this fast. Add --no-cache to also refresh the base image packages.
 
 # Remove the local images
-podman rmi localhost/packathon-opensuse:{builder,builder-system,runtime} \
-           localhost/packathon-debian:{builder,builder-system,runtime}
+podman rmi localhost/packathon-opensuse:{builder,runtime} \
+           localhost/packathon-debian:{builder,runtime}
 ```
 
 ---
@@ -143,7 +135,7 @@ podman run --rm -it \
 Container builds compile the application in an isolated scratch space (`/tmp/build`) inside the container via the shared helper script [`packaging/containers/build-package.sh`](../packaging/containers/build-package.sh). This guarantees that host CMake caches (`CMakeCache.txt`) are never overwritten or conflicted. Finished packages and the raw `ocio` binary are automatically exported into `./dist/` on the host:
 
 > [!NOTE]
-> Every command in this section and the ones below uses the `builder` or `builder-system` images. These are **local only** (not published), so build them first, see [Building Container Images Locally](#building-container-images-locally).
+> Every command in this section and the ones below uses the `builder` images. These are **local only** (not published), so build them first, see [Building Container Images Locally](#building-container-images-locally).
 > With no command, the builder images run [`build-package.sh`](../packaging/containers/build-package.sh), which writes to `/src/dist`. Mount the checkout at `/src` (`-v "$PWD:/src:Z"`) to get the artifacts in `./dist/` on the host.
 
 ### Generate `.rpm`, `.tar.gz`, and raw binary (openSUSE)
@@ -169,7 +161,7 @@ The shared packaging script ([`packaging/containers/build-package.sh`](../packag
 
 | Variable | Default / Options | Purpose |
 |---|---|---|
-| `RAYLIB_MODE` | `FETCH` (options: `FETCH`, `SYSTEM`, `LOCAL`) | Choose where Raylib is obtained: download via Git (`FETCH`), use distro packages (`SYSTEM`), or use pre-staged local source (`LOCAL`). |
+| `RAYLIB_MODE` | `FETCH` (options: `FETCH`, `SYSTEM`, `LOCAL`) | Choose where Raylib is obtained: download via Git (`FETCH`), use distro packages (`SYSTEM`, openSUSE only, must be exactly `RAYLIB_VERSION`), or use pre-staged local source (`LOCAL`). |
 | `RAYLIB_SHARED` | `OFF` (options: `ON`, `OFF`) | Set to `ON` to link Raylib dynamically as a shared library (`libraylib.so`). |
 
 **Examples across the matrix:**
@@ -180,8 +172,10 @@ podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=FETCH localhost/packathon-opensu
 # 2. Hermetic / offline build (LOCAL mode, uses pre-staged source with zero network):
 podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-opensuse:builder
 
-# 3. Canonical distro build (SYSTEM mode, requires builder-system container):
-podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=SYSTEM localhost/packathon-opensuse:builder-system
+# 3. Canonical distro build (SYSTEM mode, uses the distro raylib-devel in the openSUSE builder).
+#    CMake stops with "Could not find a configuration file for package raylib that exactly
+#    matches requested version" if Tumbleweed ships a raylib other than RAYLIB_VERSION:
+podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=SYSTEM localhost/packathon-opensuse:builder
 
 # 4. Build packages linking Raylib dynamically:
 podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-opensuse:builder
@@ -195,9 +189,11 @@ Students can build canonical RPM packages manually with `rpmbuild` using [`packa
 
 ```bash
 podman run --rm -v "$PWD:/src:Z" -w /src \
-  localhost/packathon-opensuse:builder-system \
+  localhost/packathon-opensuse:builder \
   ./packaging/rpm/build-rpm.sh
 ```
+The script builds against the distro `raylib-devel` when its version matches the spec's `raylib_version`, and switches to `--with vendored_raylib` otherwise (it prints which one it picked).
+
 This produces in `./dist/`:
 - `ocio-0.1.0-1.x86_64.rpm` (38 KB binary RPM)
 - `ocio-0.1.0-1.src.rpm` (69 KB source RPM)

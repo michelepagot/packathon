@@ -9,6 +9,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 VERSION="0.1.0"
 NAME="ocio"
+# Must match raylib_version in ocio.spec
+RAYLIB_VERSION="5.5"
 RPM_TOPDIR="${RPM_TOPDIR:-/tmp/rpmbuild}"
 
 echo "==> Setting up clean RPM build tree in ${RPM_TOPDIR}..."
@@ -26,15 +28,19 @@ tar --exclude='.git' \
 echo "==> Copying spec file..."
 cp "${SCRIPT_DIR}/ocio.spec" "${RPM_TOPDIR}/SPECS/"
 
-# Stage raylib source tarball if vendored raylib is requested or raylib-devel is not installed
+# Stage raylib source tarball if vendored raylib is requested, or if the system
+# raylib-devel is missing or not the version the spec requires (raylib_version)
 BUILD_ARGS=("$@")
-if [[ "${BUILD_ARGS[*]:-}" == *"--with vendored_raylib"* ]] || ! pkg-config --exists raylib 2>/dev/null; then
-    RAYLIB_SRC="${RPM_TOPDIR}/SOURCES/raylib-5.5.tar.gz"
+SYSTEM_RAYLIB="$(pkg-config --modversion raylib 2>/dev/null || true)"
+if [[ "${BUILD_ARGS[*]:-}" == *"--with vendored_raylib"* ]] || \
+   [[ "${SYSTEM_RAYLIB}" != "${RAYLIB_VERSION}" && "${SYSTEM_RAYLIB}" != "${RAYLIB_VERSION}".* ]]; then
+    RAYLIB_SRC="${RPM_TOPDIR}/SOURCES/raylib-${RAYLIB_VERSION}.tar.gz"
     if [ ! -f "${RAYLIB_SRC}" ]; then
-        echo "==> Staging raylib-5.5 source tarball for hermetic/vendored build..."
-        curl -sLo "${RAYLIB_SRC}" "https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz"
+        echo "==> Staging raylib-${RAYLIB_VERSION} source tarball for hermetic/vendored build..."
+        curl -sLo "${RAYLIB_SRC}" "https://github.com/raysan5/raylib/archive/refs/tags/${RAYLIB_VERSION}.tar.gz"
     fi
     if [[ "${BUILD_ARGS[*]:-}" != *"--with vendored_raylib"* ]]; then
+        echo "==> System raylib is '${SYSTEM_RAYLIB:-not installed}', spec needs ${RAYLIB_VERSION}: building with vendored raylib"
         BUILD_ARGS+=("--with" "vendored_raylib")
     fi
 fi

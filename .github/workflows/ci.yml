@@ -25,12 +25,6 @@ jobs:
             -t localhost/packathon-opensuse:builder \
             -f packaging/containers/Containerfile.opensuse .
 
-      - name: Build openSUSE builder-system stage (with raylib-devel)
-        run: |
-          podman build --target builder-system \
-            -t localhost/packathon-opensuse:builder-system \
-            -f packaging/containers/Containerfile.opensuse .
-
       - name: Build openSUSE minimal runtime stage
         run: |
           podman build --target runtime \
@@ -50,6 +44,10 @@ jobs:
             -e RAYLIB_MODE=FETCH -e RAYLIB_SHARED=OFF \
             localhost/packathon-opensuse:builder
           ls -la dist/
+          # The builder also has the distro raylib-devel: static FETCH must not link it
+          if readelf -d dist/ocio | grep 'NEEDED.*libraylib'; then
+            echo "FETCH build linked a shared libraylib"; exit 1
+          fi
 
       - name: Verify CPack RPM in pristine vanilla openSUSE Tumbleweed
         run: |
@@ -59,13 +57,25 @@ jobs:
             registry.opensuse.org/opensuse/tumbleweed:latest \
             sh -c "zypper --non-interactive in --allow-unsigned-rpm /ocio.rpm && ocio --version && ocio --help"
 
-      - name: "Build Mode: SYSTEM (raylib-devel package)"
+      # Tumbleweed is rolling: the build must succeed when its raylib-devel
+      # matches RAYLIB_VERSION, and stop with the EXACT version error otherwise
+      - name: "Build Mode: SYSTEM (raylib-devel package, must match RAYLIB_VERSION)"
         run: |
           rm -rf dist
-          podman run --rm -v "$PWD:/src:Z" -w /src \
-            -e RAYLIB_MODE=SYSTEM \
-            localhost/packathon-opensuse:builder-system
-          ls -la dist/
+          WANTED=$(sed -n 's/^set(RAYLIB_VERSION \([0-9.]*\))/\1/p' CMakeLists.txt)
+          FOUND=$(podman run --rm localhost/packathon-opensuse:builder \
+            rpm -q --qf '%{VERSION}' raylib-devel)
+          echo "RAYLIB_VERSION=${WANTED}, raylib-devel=${FOUND}"
+          if podman run --rm -v "$PWD:/src:Z" -w /src \
+               -e RAYLIB_MODE=SYSTEM \
+               localhost/packathon-opensuse:builder 2>&1 | tee system-build.log; then
+            [ "${FOUND}" = "${WANTED}" ] || { echo "SYSTEM build accepted raylib ${FOUND}"; exit 1; }
+            ls -la dist/
+          else
+            [ "${FOUND}" != "${WANTED}" ] || { echo "SYSTEM build failed with matching raylib"; exit 1; }
+            grep -q "matches requested version \"${WANTED}\"" system-build.log
+            echo "SYSTEM build refused raylib ${FOUND} as expected"
+          fi
 
       - name: "Build Mode: SHARED (libraylib.so)"
         run: |
@@ -75,11 +85,12 @@ jobs:
             localhost/packathon-opensuse:builder
           ls -la dist/
 
+      # Uses the system raylib-devel if it matches the spec, vendored raylib otherwise
       - name: "Packaging Mode: Canonical manual rpmbuild (ocio.spec)"
         run: |
           rm -rf dist
           podman run --rm -v "$PWD:/src:Z" -w /src \
-            localhost/packathon-opensuse:builder-system \
+            localhost/packathon-opensuse:builder \
             ./packaging/rpm/build-rpm.sh
           ls -la dist/
 
@@ -106,12 +117,6 @@ jobs:
         run: |
           podman build --target builder \
             -t localhost/packathon-debian:builder \
-            -f packaging/containers/Containerfile.debian .
-
-      - name: Build Debian builder-system stage (pre-installed raylib)
-        run: |
-          podman build --target builder-system \
-            -t localhost/packathon-debian:builder-system \
             -f packaging/containers/Containerfile.debian .
 
       - name: Build Debian minimal runtime stage
@@ -141,14 +146,6 @@ jobs:
           podman run --rm -v "$PWD/$DEB_FILE:/ocio.deb:ro,Z" \
             debian:bookworm-slim \
             sh -c "apt-get update && apt-get install -y /ocio.deb && ocio --version && ocio --help"
-
-      - name: "Build Mode: SYSTEM (System raylib in /usr/local)"
-        run: |
-          rm -rf dist
-          podman run --rm -v "$PWD:/src:Z" -w /src \
-            -e RAYLIB_MODE=SYSTEM \
-            localhost/packathon-debian:builder-system
-          ls -la dist/
 
       - name: "Build Mode: LOCAL (Hermetic offline build with pre-staged raylib)"
         run: |
