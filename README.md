@@ -1,165 +1,103 @@
-# Packathon 👁️📦
+# Packathon
 
-**Packathon** is a software distribution playground and experimental laboratory.
-The central mission of the project is to explore, compare, document and have fun with
-modern software packaging and automated release pipelines.
+**Packathon** is the companion repository for the talk
+***Packathon: Packaging & Distributing Software on Linux*** (Linux Day Trieste 2026).
 
+Slides: **https://michelepagot.github.io/packathon/**
+
+> Getting a compiled binary onto a stranger's Linux machine is one question with many answers,
+> and every answer is a choice about **who owns the dependencies**.
+
+The repository takes one small application and packages it in several formats.
+Every artifact is built from the same source and tested in clean containers, so you can compare the formats side by side.
+The live demos from the talk can be reproduced from this repository.
 
 ## The excuse: `ocio`
 
-Just the most amazing 15min vibecoded next app I'm sure you must have and will change your life!!!
-The user-facing GUI application is **`ocio`**, a lightweight C program powered by [raylib](https://www.raylib.com/)
-featuring an interactive eye that tracks the mouse cursor.
-`ocio` (*"watch out / look / eye"*) is a single-window graphics application written in C:
-- **Gaze Tracking**: Pupil and iris follow cursor position with organic saccadic damping.
-- **Version Handling**:
-  - In GUI: Press <kbd>V</kbd> to toggle a sleek on-screen version overlay (`Ocio v0.1.0`).
-  - In CLI: Pass `--version` / `-v` to print version info and exit.
+The app being packaged is [`ocio`](src/README.md), an eye that follows the mouse cursor.
+It took 15 minutes to vibecode, and it will change your life.
+
+It was chosen on purpose: **maximally simple source, maximally realistic runtime footprint.**
+It is one C file with no business logic, but at runtime it needs OpenGL, a display server and `/dev/dri`, just like a real desktop application.
+
+My first plan was to mail it to you on a 3.5" floppy disk. The rest of this repository covers everything else.
+
+## The routes
+
+| Route | Format | Who provides the dependencies | Recipe | Live demo |
+|---|---|---|---|---|
+| None | Raw binary / tarball | The developer (static) + whatever is on the host | CPack `TGZ` | - |
+| 1. Delegate to the distro | RPM | The distribution (`libsolv`) | [`packaging/rpm/`](packaging/rpm/) (`rpmbuild` + `ocio.spec`) | [`demo-rpm.sh`](packaging/demo/demo-rpm.sh) |
+| 1. Delegate to the distro | DEB | The distribution (APT) | [`packaging/deb/`](packaging/deb/) (`dpkg-deb` + `dpkg-shlibdeps`) | [`demo-deb.sh`](packaging/demo/demo-deb.sh) |
+| 2. Self-mounting bundle | AppImage | The bundle, except glibc and the GL stack | [`packaging/appimage/`](packaging/appimage/) (`appimagetool`) | [`demo-appimage.sh`](packaging/demo/demo-appimage.sh) |
+| 3. Desktop sandbox | Flatpak | A shared runtime (`org.freedesktop.Platform//25.08`) | [`packaging/flatpak/`](packaging/flatpak/) (`flatpak-builder`) | [`demo-flatpak.sh`](packaging/demo/demo-flatpak.sh) |
+
+CPack can also produce TGZ, DEB and RPM from [`CMakeLists.txt`](CMakeLists.txt). This is the quick, generic path. The recipes above are the minimal, hand-written versions that the talk dissects.
+
+For more detail, see:
+- [Packaging Guide](docs/packaging-guide.md): how each format works and what it costs
+- [Container-Based Packaging & Testing](docs/container-packaging.md): builder and runtime images, display pass-through, vanilla-container verification
+
+## Quick start
+
+To try `ocio` without building anything, pull the published runtime image:
 
 ```bash
-$ ocio --version
-ocio 0.1.0
+podman run --rm ghcr.io/michelepagot/packathon/opensuse:latest --version   # or .../debian:latest
 ```
 
-> [!NOTE]
-> **Linking Architecture & Shared Library Dependencies**:
-> By default (`-DRAYLIB_SHARED=OFF`), raylib is compiled statically (`libraylib.a`) into `ocio`, leaving only base system runtime dependencies:
-> ```
-> DT_NEEDED: libm.so.6, libOpenGL.so.0, libGLX.so.0, libGLU.so.1, libc.so.6
-> ```
-> This makes `ocio` an almost standalone executable requiring no external raylib installation.
-> 
-> *Note*: If configured with `-DRAYLIB_SHARED=ON` or `-DRAYLIB_MODE=SYSTEM`, `ocio` links dynamically against `libraylib.so`, which must then be provided by the host environment or packaging bundle.
+To open the GUI from the container, see [Running the GUI](docs/container-packaging.md) for the display and `/dev/dri` pass-through flags.
 
-## Controls
-
-| Action | Key / Input |
-|---|---|
-| Direct Gaze | Move Mouse Cursor |
-| Toggle Version Overlay | <kbd>V</kbd> |
-| Exit Application | <kbd>Escape</kbd> or close window |
-
-## Release Artifacts
-
-After miserably fails in distributing `ocio` using floppy disks via post mail I decided to explore something else.
-Every GitHub release publishes a comprehensive set of distribution artifacts:
-
-| Format / Target | Artifact Name | Description |
-|---|---|---|
-| **Linux x86_64** | `ocio-0.1.0-Linux-x86_64.tar.gz` | Standalone binary archive with desktop files |
-| **Windows x86_64** | `ocio-0.1.0-Windows-x86_64.zip` | Standalone native Windows executable |
-| **macOS ARM64** | `ocio-0.1.0-Darwin-arm64.tar.gz` | Native Apple Silicon (M1/M2/M3) binary archive |
-
-But people keep complaining that those are not working on their machines, so let's explore something else
-
-| Format / Target | Artifact Name | Description |
-|---|---|---|
-| **Debian / Ubuntu** | `ocio_0.1.0_amd64.deb` | Standard `.deb` package built via CPack |
-| **RPM (Fedora/RHEL/openSUSE)** | `ocio-0.1.0-1.x86_64.rpm` | Standard `.rpm` package built via CPack |
-| **AppImage** | `ocio-x86_64.AppImage` | Standalone single-file executable for any Linux distro |
-| **Flatpak** | `ocio.flatpak` | Sandboxed desktop bundle |
-
-For an in-depth breakdown of how each packaging approach works, see the [Packaging Guide](docs/packaging-guide.md) and the [Container-Based Packaging & Testing Guide](docs/container-packaging.md).
-
-
-## Building from Source
-
-### Prerequisites
-
-- **CMake** 3.16+
-- **C99/C11 Compiler** (GCC, Clang, or MSVC)
-- **Git** (Raylib 5.5 is automatically fetched via CMake `FetchContent`)
-
-#### Linux Build Dependencies
-On Ubuntu / Debian:
-```bash
-sudo apt-get install -y cmake build-essential git \
-    libasound2-dev libx11-dev libxrandr-dev libxi-dev \
-    libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev libxinerama-dev libwayland-dev libxkbcommon-dev rpm
-```
-On openSUSE / SUSE:
-```bash
-sudo zypper in -y cmake gcc gcc-c++ git \
-    libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel Mesa-libGL-devel alsa-devel rpm-build
-```
-
-### Build & Run
+Artifacts are written to `dist/`. The CPack builds and `build-deb.sh` run inside containers and need only `podman`. The other recipes use host tools: `rpmbuild` and a C toolchain for the RPM, a C toolchain for the AppImage, and `flatpak-builder` for the Flatpak.
 
 ```bash
-# 1. Configure and build
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+# Native packages via CPack, in the matching builder container
+podman build --target builder -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse .
+podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder   # .rpm + .tar.gz
 
-# 2. Run the application
-./build/bin/ocio
-```
+podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
+podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder     # .deb + .tar.gz
 
-## Local Packaging Recipes
-
-### Standalone Tarball, Debian (.deb) & RPM (.rpm)
-Packathon configures CMake's built-in **CPack** generator to build native packages:
-```bash
-cd build
-cpack -G "TGZ;DEB;RPM"
-```
-Generated packages will appear in `build/`.
-
-### AppImage
-Run the automated packaging script (uses `appimagetool` directly, no `linuxdeploy` required thanks to static raylib linking):
-```bash
+# The hand-written recipes
+./packaging/rpm/build-rpm.sh
+./packaging/deb/build-deb.sh                # runs in the Debian builder container on non-Debian hosts
 ./packaging/appimage/build-appimage.sh
-```
-The resulting `ocio-x86_64.AppImage` will be placed in `dist/`.
-
-### Flatpak
-Build and bundle using the helper script or `flatpak-builder` directly:
-```bash
-# Automated helper script (fetches SDK/Platform if missing and bundles ocio.flatpak into dist/):
 ./packaging/flatpak/build-flatpak.sh
 
-# Or manual step-by-step:
-flatpak-builder --force-clean build-dir packaging/flatpak/org.packathon.ocio.yml
-flatpak-builder --export-bundle repo ocio.flatpak org.packathon.ocio
+# Install and inspect each artifact in a pristine container
+./packaging/demo/demo-rpm.sh                # likewise demo-deb.sh, demo-appimage.sh, demo-flatpak.sh
 ```
 
-### Controlled Container Environments (Podman)
-Each `Containerfile` separates **build-time** dependencies from clean **runtime** environments via multi-stage builds. Builds occur in container-isolated scratch space (`/tmp/build`) so they never conflict with or overwrite host build caches.
+To build and run `ocio` directly on your machine, see [`src/README.md`](src/README.md).
 
-- **Packaging (.rpm / .deb)** (artifacts are exported into `./dist/`):
-  ```bash
-  # openSUSE (builds .rpm and .tar.gz into ./dist/):
-  podman build --target builder -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse .
-  podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder
+The [devcontainer](.devcontainer/) provides the same environment in a browser terminal (ttyd on port 7681). This is the setup used for the live demo.
 
-  # Debian (builds .deb and .tar.gz into ./dist/):
-  podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
-  podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
-  ```
+## Releases and CI
 
-- **Running GUI in Podman Container**:
-  ```bash
-  # 1. Build the minimal runtime image (choose openSUSE or Debian)
-  podman build --target runtime -t localhost/packathon-opensuse:runtime -f packaging/containers/Containerfile.opensuse .
-  # or:
-  podman build --target runtime -t localhost/packathon-debian:runtime -f packaging/containers/Containerfile.debian .
+Every tagged release on GitHub publishes the full set of artifacts: Linux tarball, `.rpm`, `.deb`, AppImage and Flatpak, plus a Windows `.zip` and a macOS ARM64 tarball.
 
-  # 2. Grant X11 access and run ocio on host display
-  xhost +local:$USER
-  podman run --rm -it --net=host --ipc=host \
-    -e DISPLAY=$DISPLAY \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
-    --device /dev/dri \
-    localhost/packathon-opensuse:runtime   # or localhost/packathon-debian:runtime
-  ```
+| Workflow | What it does |
+|---|---|
+| [`ci.yml`](.github/workflows/ci.yml) | Builds, checks the CLI flags and runs CPack on every PR and push to `main` |
+| [`release.yml`](.github/workflows/release.yml) | On `v*` tags: builds every artifact, installs each Linux package in a vanilla container, attaches them to the release |
+| [`containers.yml`](.github/workflows/containers.yml) | Publishes the openSUSE and Debian runtime images to `ghcr.io/michelepagot/packathon/{opensuse,debian}` (builder images are local only) |
+| [`pages.yml`](.github/workflows/pages.yml) | Deploys the slides to GitHub Pages |
 
-  For full details on testing packages in vanilla containers, display pass-through, and architectural rationale, see the [Container-Based Packaging & Testing Guide](docs/container-packaging.md).
+## Repository map
 
-## Automated CI/CD Pipelines
+```
+src/                  the ocio application (see src/README.md)
+packaging/            one directory per format, plus containers/ and demo/
+docs/                 packaging and container guides
+docs/pages/slides/    the talk (Reveal.js, IT and EN)
+.devcontainer/        browser-based live-demo environment
+```
 
-GitHub Actions workflows are located in [`.github/workflows/`](.github/workflows/):
-- **`ci.yml`**: Runs on pull requests and pushes to `main` to verify compilation, test CLI flags, and validate CPack packaging.
-- **`release.yml`**: Runs on tag pushes (`v*`) or manual dispatch to compile across a matrix of Linux (x86_64), Windows, macOS (ARM64), package `.deb`, `.rpm`, `.AppImage`, and `.flatpak`, and attach all artifacts to the GitHub Release.
+## Out of scope
+
+The talk does not cover Snap, Nix, Arch/AUR, Windows MSI/MSIX or macOS notarization.
+The AppImage is built on a recent distro, so it inherits that distro's glibc baseline and is less portable than the format promises. Building on an older LTS baseline is on the roadmap.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE)
