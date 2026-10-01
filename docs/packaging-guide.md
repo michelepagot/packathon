@@ -9,9 +9,9 @@ This document explains the packaging approaches explored in the **Packathon** pr
 | **Standalone Tarball / Zip** | Linux, macOS, Windows | None | Minimal runtime deps / static raylib | CMake / CPack (`TGZ`, `ZIP`) |
 | **`.deb` Package (CPack)** | Debian, Ubuntu, Mint | System integration | Declared dependencies (`dpkg`/`apt`) | CPack `DEB` generator |
 | **`.rpm` Package (CPack)** | Fedora, RHEL, openSUSE | System integration | Declared dependencies (`rpm`/`dnf`/`zypper`) | CPack `RPM` generator |
-| **Canonical Native `.rpm`** | Fedora, openSUSE, RHEL | System integration + unbundling | Automatic ELF dependency tracking (`find-requires`) | `rpmbuild` via [`packaging/rpm/ocio.spec`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/rpm/ocio.spec) |
+| **Canonical Native `.rpm`** | Fedora, openSUSE, RHEL | System integration + unbundling | Automatic ELF dependency tracking (`find-requires`) | `rpmbuild` via [`packaging/rpm/ocio.spec`](../packaging/rpm/ocio.spec) |
 | **AppImage** | Cross-distribution Linux | Single-file, runs anywhere | Bundles runtime libraries into AppDir | `appimagetool` (no `linuxdeploy` needed) |
-| **Flatpak** | Modern Linux desktop | Sandboxed (Bubblewrap, Flatpak runtime) | Bundled in runtime/SDK (`org.freedesktop`) | `flatpak-builder` via [`packaging/flatpak/build-flatpak.sh`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/flatpak/build-flatpak.sh) |
+| **Flatpak** | Modern Linux desktop | Sandboxed (Bubblewrap, Flatpak runtime) | Bundled in runtime/SDK (`org.freedesktop`) | `flatpak-builder` via [`packaging/flatpak/build-flatpak.sh`](../packaging/flatpak/build-flatpak.sh) |
 
 ## Native Standalone Binaries (Linux, Windows, macOS ARM)
 
@@ -47,7 +47,7 @@ set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
 
 ## Canonical RPM Packaging via `rpmbuild` (Without CPack)
 
-To adhere to official upstream distribution standards (openSUSE, Fedora) without CPack abstractions, the project provides a canonical RPM spec file: [`packaging/rpm/ocio.spec`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/rpm/ocio.spec).
+To adhere to official upstream distribution standards (openSUSE, Fedora) without CPack abstractions, the project provides a canonical RPM spec file: [`packaging/rpm/ocio.spec`](../packaging/rpm/ocio.spec).
 
 ### Key Architectural Advantages
 1. **Unbundling Policy**: Links against distro-provided shared library (`libraylib.so.600`), yielding a compact **38 KB** RPM instead of a statically bundled megabyte package.
@@ -82,7 +82,7 @@ Outputs in `./dist/`:
 
 - Flatpak packages applications in sandboxes using kernel namespaces and Bubblewrap.
 - The application runs against a standardized desktop runtime (`org.freedesktop.Platform`) rather than host libraries.
-- The manifest [`packaging/flatpak/org.packathon.ocio.yml`](file:///home/michelepa/draft/raylib_xp/c_eye_follow/packaging/flatpak/org.packathon.ocio.yml) defines:
+- The manifest [`packaging/flatpak/org.packathon.ocio.yml`](../packaging/flatpak/org.packathon.ocio.yml) defines:
   - Permissions (`--share=ipc`, `--socket=x11`, `--socket=wayland`, `--device=dri` for OpenGL graphics).
   - Build module invoking CMake.
 
