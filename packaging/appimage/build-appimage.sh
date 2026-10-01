@@ -11,30 +11,36 @@ OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/dist}"
 mkdir -p "${OUTPUT_DIR}"
 mkdir -p "${BUILD_DIR}"
 
-echo "=== 1. Building ocio with CMake ==="
+echo "=== Building ocio with CMake ==="
 cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
 cmake --build "${BUILD_DIR}" --config Release -j"$(nproc)"
 
-echo "=== 2. Assembling AppDir ==="
+echo "=== Assembling AppDir ==="
 rm -rf "${APPDIR}"
 DESTDIR="${APPDIR}" cmake --install "${BUILD_DIR}"
 cp "${ROOT_DIR}/packaging/ocio.desktop" "${APPDIR}/"
 cp "${ROOT_DIR}/packaging/icons/ocio.png" "${APPDIR}/"
 ln -sf usr/local/bin/ocio "${APPDIR}/AppRun"
 
-echo "=== 3. Packaging AppImage with appimagetool ==="
+echo "=== Packaging AppImage with appimagetool ==="
 export ARCH=x86_64
 APPIMAGE_BIN="${OUTPUT_DIR}/ocio-x86_64.AppImage"
 
 # appimagetool otherwise downloads the type2 runtime itself at every build,
 # and can hang there: fetch it once and pass it explicitly.
-RUNTIME="${BUILD_DIR}/runtime-x86_64"
-if [ ! -f "${RUNTIME}" ]; then
-    curl -sSL --max-time 120 -o "${RUNTIME}" https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
+RUNTIME_ARCH="x86_64"
+if [ -f "/usr/lib/runtime-${RUNTIME_ARCH}" ]; then
+    RUNTIME="/usr/lib/runtime-${RUNTIME_ARCH}"
+elif [ -f "${BUILD_DIR}/runtime-${RUNTIME_ARCH}" ]; then
+    RUNTIME="${BUILD_DIR}/runtime-${RUNTIME_ARCH}"
+else
+    RUNTIME="${BUILD_DIR}/runtime-${RUNTIME_ARCH}"
+    echo "Runtime not found in /usr/lib or ${BUILD_DIR}; downloading..."
+    curl -sSL --max-time 120 -o "${RUNTIME}" "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-${RUNTIME_ARCH}"
 fi
 
 if command -v appimagetool >/dev/null 2>&1; then
-    appimagetool --runtime-file "${RUNTIME}" "${APPDIR}" "${APPIMAGE_BIN}"
+    appimagetool --verbose --runtime-file "${RUNTIME}" "${APPDIR}" "${APPIMAGE_BIN}"
 else
     TOOL="${BUILD_DIR}/appimagetool"
     if [ ! -f "${TOOL}" ]; then

@@ -68,6 +68,10 @@ RUN zypper --non-interactive refresh && \
         rpm-build \
         flatpak \
         flatpak-builder \
+        AppStream \
+        # elfutils provides eu-strip and eu-elfcompress, required by flatpak-builder
+        # to strip debug symbols from built binaries during packaging
+        elfutils \
     && zypper clean -a \
     && rm -rf /var/cache/zypp/*
 
@@ -78,6 +82,21 @@ RUN curl -sLo /tmp/appimagetool https://github.com/AppImage/appimagetool/release
     mv squashfs-root /usr/lib/appimagetool && \
     ln -s /usr/lib/appimagetool/AppRun /usr/local/bin/appimagetool && \
     rm -f /tmp/appimagetool
+
+# appimagetool otherwise downloads the type2 runtime itself at every build,
+# and can hang there: fetch it once and pass it explicitly.
+RUN curl -sLo /tmp/runtime-x86_64 https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 && \
+    mv /tmp/runtime-x86_64 /usr/lib/runtime-x86_64
+
+# Pre-install Flatpak runtime and SDK for building org.packathon.ocio.
+# The remote is deleted afterwards so no network remote remains configured.
+RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && \
+    flatpak install -y --noninteractive flathub \
+        org.freedesktop.Platform//25.08 \
+        org.freedesktop.Sdk//25.08 && \
+    flatpak remote-delete --force flathub && \
+    ln -sf /usr/libexec/appstreamcli-compose \
+        /var/lib/flatpak/runtime/org.freedesktop.Sdk/x86_64/25.08/active/files/bin/appstream-compose
 
 WORKDIR /src
 

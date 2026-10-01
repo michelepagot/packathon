@@ -22,38 +22,34 @@ It is one C file with no business logic, but at runtime it needs OpenGL, a displ
 
 My first plan was to mail it to you on a 3.5" floppy disk. The rest of this repository covers everything else.
 
-## The routes
-
-| Route | Format | Who provides the dependencies | Recipe | Live demo |
-|---|---|---|---|---|
-| None | Raw binary / tarball | The developer (static) + whatever is on the host | CPack `TGZ` | - |
-| 1. Delegate to the distro | RPM | The distribution (`libsolv`) | [`packaging/rpm/`](packaging/rpm/) (`rpmbuild` + `ocio.spec`) | [`demo-rpm.sh`](packaging/demo/demo-rpm.sh) |
-| 1. Delegate to the distro | DEB | The distribution (APT) | [`packaging/deb/`](packaging/deb/) (`dpkg-deb` + `dpkg-shlibdeps`) | [`demo-deb.sh`](packaging/demo/demo-deb.sh) |
-| 2. Self-mounting bundle | AppImage | The bundle, except glibc and the GL stack | [`packaging/appimage/`](packaging/appimage/) (`appimagetool`) | [`demo-appimage.sh`](packaging/demo/demo-appimage.sh) |
-| 3. Desktop sandbox | Flatpak | A shared runtime (`org.freedesktop.Platform//25.08`) | [`packaging/flatpak/`](packaging/flatpak/) (`flatpak-builder`) | [`demo-flatpak.sh`](packaging/demo/demo-flatpak.sh) |
-
-CPack can also produce TGZ, DEB and RPM from [`CMakeLists.txt`](CMakeLists.txt). This is the quick, generic path. The recipes above are the minimal, hand-written versions that the talk dissects.
-
-For more detail, see:
-- [Packaging Guide](docs/packaging-guide.md): how each format works and what it costs
-- [Container-Based Packaging & Testing](docs/container-packaging.md): builder images, the build/fail/fix/package/install walkthrough, display pass-through, vanilla-container verification
-
-## Quick start
-
+## As you no more have a floppy drive...
 Grab the prebuilt binary from the [latest release](https://github.com/michelepagot/packathon/releases/latest):
 
 ```bash
 # Download and run. Hopefully it works. Maybe not.
 curl -L https://github.com/michelepagot/packathon/releases/latest/download/ocio-0.1.0-Linux-x86_64.tar.gz | tar xz
 ./ocio-0.1.0-Linux/bin/ocio
+````
 
-# If it does not work... well, that is the point of this talk.
-```
+If it does not work... well, you are in the right place, no blame on you, that is the point of this talk.
 
-The tarball ships the binary and nothing else: the libraries it needs are whatever your system happens to have.
-The same release page has the routes that take care of that: `.rpm`, `.deb`, AppImage and Flatpak, plus Windows and macOS builds.
 
-To build them yourself instead, every recipe writes its artifacts to `dist/`. The builder images hold only the tools: you mount the checkout and name the script to run, so you need only `podman`. Run directly on the host, the recipes need their tools there: `rpmbuild` and a C toolchain for the RPM, a C toolchain for the AppImage, and `flatpak-builder` for the Flatpak.
+| Format | Who provides the dependencies | Recipe | Live demo |
+|---|---|---|---|
+| Raw binary / tarball | The developer (static) + whatever is on the host | CPack `TGZ` | - |
+| RPM | The distribution (`libsolv`) | [`packaging/rpm/`](packaging/rpm/) (`rpmbuild` + `ocio.spec`) | [`demo-rpm.sh`](packaging/demo/demo-rpm.sh) |
+| DEB | The distribution (APT) | [`packaging/deb/`](packaging/deb/) (`dpkg-deb` + `dpkg-shlibdeps`) | [`demo-deb.sh`](packaging/demo/demo-deb.sh) |
+| AppImage | The bundle, except glibc and the GL stack | [`packaging/appimage/`](packaging/appimage/) (`appimagetool`) | [`demo-appimage.sh`](packaging/demo/demo-appimage.sh) |
+| Flatpak | A shared runtime (`org.freedesktop.Platform//25.08`) | [`packaging/flatpak/`](packaging/flatpak/) (`flatpak-builder`) | [`demo-flatpak.sh`](packaging/demo/demo-flatpak.sh) |
+
+For more detail, see:
+- [Packaging Guide](docs/packaging-guide.md): how each format works and what it costs
+- [Container-Based Packaging & Testing](docs/container-packaging.md): builder images, the build/fail/fix/package/install walkthrough, display pass-through, vanilla-container verification
+- [Dependency Updates & Maintenance Guide](docs/maintenance.md): coordinating versions across formats and how to update them
+
+To build them yourself instead, every recipe writes its artifacts to `dist/`. The builder images hold only the tools:
+you mount the checkout and name the script to run, so you need only `podman`.
+Run directly on the host, the recipes need their tools there: `rpmbuild` and a C toolchain for the RPM, a C toolchain for the AppImage, and `flatpak-builder` for the Flatpak.
 
 ```bash
 # The builder images are published on GHCR and pulled on first use

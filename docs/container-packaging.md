@@ -13,8 +13,8 @@ There is no image of ours that contains `ocio`.
 
 | Distro | Published on GHCR | Local tag ([if you build it](#using-a-local-build)) | Builds | Package set |
 |---|---|---|---|---|
-| **openSUSE** Tumbleweed | `ghcr.io/michelepagot/packathon/opensuse-builder` | `localhost/packathon-opensuse:builder` | All builds (`FETCH`, `LOCAL`, `SYSTEM`; `SYSTEM` fails while Tumbleweed ships a raylib other than `RAYLIB_VERSION`), CPack RPM, manual `rpmbuild`, AppImage, Flatpak | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `curl`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `raylib-devel`, `rpm-build`, `flatpak`, `flatpak-builder`, `appimagetool` |
-| **Debian** bookworm | `ghcr.io/michelepagot/packathon/debian-builder` | `localhost/packathon-debian:builder` | General builds (`FETCH`, `LOCAL`), CPack DEB, `build-deb.sh`, AppImage, Flatpak | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `curl`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev`, `flatpak`, `flatpak-builder`, `appimagetool` *(no raylib: Debian doesn't package it, so no `SYSTEM` mode)* |
+| **openSUSE** Tumbleweed | `ghcr.io/michelepagot/packathon/opensuse-builder` | `localhost/packathon-opensuse:builder` | All builds (`FETCH`, `LOCAL`, `SYSTEM`; `SYSTEM` fails while Tumbleweed ships a raylib other than `RAYLIB_VERSION`), CPack RPM, manual `rpmbuild`, AppImage, Flatpak | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `curl`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `raylib-devel`, `rpm-build`, `flatpak`, `flatpak-builder`, `appimagetool`, `elfutils`, `org.freedesktop.Platform//25.08`, `org.freedesktop.Sdk//25.08` |
+| **Debian** bookworm | `ghcr.io/michelepagot/packathon/debian-builder` | `localhost/packathon-debian:builder` | General builds (`FETCH`, `LOCAL`), CPack DEB, `build-deb.sh`, AppImage, Flatpak | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `curl`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev`, `flatpak`, `flatpak-builder`, `appimagetool`, `elfutils`, `org.freedesktop.Platform//25.08`, `org.freedesktop.Sdk//25.08` *(no raylib: Debian doesn't package it, so no `SYSTEM` mode)* |
 
 The images have no default build: name the script to run after the image. With no command they open a shell.
 `WORKDIR` is `/src`, so script paths are relative to the checkout:
@@ -347,7 +347,7 @@ Test the resulting single-file `.AppImage` in untouched base distribution contai
 
 ## Building & Testing Flatpak in Podman
 
-Flatpak packaging builds completely autonomously inside the container by downloading required runtime dependencies directly from Flathub into container storage, eliminating any host dependency on `/var/lib/flatpak`.
+Flatpak packaging builds completely autonomously inside the container using the Flatpak Platform and SDK pre-installed in the builder image, with zero network download required for runtime dependencies and eliminating any host dependency on `/var/lib/flatpak`.
 
 > [!NOTE]
 > `flatpak-builder` uses Bubblewrap (`bwrap`) to create build sandboxes with user namespaces, which requires running Podman with `--privileged`.
@@ -371,10 +371,9 @@ podman run --privileged --rm -v "$PWD:/src:Z" \
   packaging/flatpak/build-flatpak.sh
 ```
 This script:
-1. Adds the Flathub remote inside the container.
-2. Installs `org.freedesktop.Platform` and `org.freedesktop.Sdk` at the manifest's `runtime-version` (25.08), unless already present.
-3. Runs `flatpak-builder` to download and compile both `raylib` and `ocio`.
-4. Packages a standalone bundle `ocio.flatpak` into `./dist/`.
+1. Verifies that `org.freedesktop.Platform` and `org.freedesktop.Sdk` matching the manifest's `runtime-version` (25.08) are present (pre-installed in the builder images).
+2. Runs `flatpak-builder` to download and compile both `raylib` and `ocio`.
+3. Packages a standalone bundle `ocio.flatpak` into `./dist/`.
 
 ### 2. Test Flatpak in Container
 Install and run the bundle inside a privileged container:

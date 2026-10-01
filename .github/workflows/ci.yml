@@ -101,7 +101,7 @@ jobs:
   # 2. Debian: Builder Image, All Debian Build Modes & DEB/AppImage Verification
   # ===========================================================================
   test-debian-containers-and-modes:
-    name: Debian (Builder Image, Build Modes, DEB & AppImage Verification)
+    name: Debian (Builder Image, Build Modes, DEB, AppImage & Flatpak Verification)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -159,6 +159,21 @@ jobs:
           podman run --rm -v "$PWD/dist/ocio-x86_64.AppImage:/ocio.AppImage:ro,Z" \
             debian:bookworm-slim \
             /ocio.AppImage --appimage-extract-and-run --version
+
+      # - name: "Packaging Mode: Flatpak (Containerized build-flatpak.sh)"
+      #   run: |
+      #     rm -rf dist
+      #     podman run --privileged --rm -v "$PWD:/src:Z" -w /src \
+      #       localhost/packathon-debian:builder \
+      #       ./packaging/flatpak/build-flatpak.sh
+      #     ls -la dist/
+
+      # - name: Verify Flatpak bundle in Debian builder container
+      #   run: |
+      #     echo "Testing Flatpak: dist/ocio.flatpak"
+      #     podman run --privileged --rm -v "$PWD/dist:/dist:ro,Z" \
+      #       localhost/packathon-debian:builder \
+      #       sh -c "flatpak install -y --user /dist/ocio.flatpak && flatpak run org.packathon.ocio --version"
 
   # ===========================================================================
   # 3. Flatpak Packaging
