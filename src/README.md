@@ -60,7 +60,7 @@ cmake --build build --config Release
 
 | Option | Default | Effect |
 |---|---|---|
-| `RAYLIB_MODE` | `FETCH` | Where raylib comes from: `FETCH` (GitHub, pinned to 5.5), `SYSTEM` (installed package), `LOCAL` (pre-staged source in `build/_deps/raylib-src`, used for offline builds such as Flatpak) |
+| `RAYLIB_MODE` | `FETCH` | Where raylib comes from: `FETCH` (GitHub, pinned to 5.5), `SYSTEM` (installed package, must be exactly the pinned version; Debian doesn't package raylib), `LOCAL` (pre-staged source in `build/_deps/raylib-src`, used for offline builds such as Flatpak) |
 | `RAYLIB_SHARED` | `OFF` | Link raylib as a shared library instead of statically |
 | `ENABLE_CPACK` | `ON` | Generate the CPack configuration (TGZ, DEB, RPM, ZIP) |
 
@@ -83,6 +83,19 @@ To list them, run the binary under a display:
 ```bash
 LD_DEBUG=files ./build/bin/ocio 2>&1 | grep 'dynamically loaded by'
 ```
+
+**Packages to install**, for example in a vanilla container (see the [walkthrough](../docs/container-packaging.md#walkthrough-build-fail-fix-package-install)):
+
+| Distro | Required | Optional (GLFW degrades gracefully without them) |
+|---|---|---|
+| Debian bookworm | `libglx0`, `libx11-6` (both `dlopen()`ed) | `libxcursor1`, `libxi6`, `libxinerama1`, `libxrandr2` |
+| openSUSE Tumbleweed | `libglvnd` (provides `libOpenGL.so.0` and `libGLX.so.0`, and requires `libX11-6`) | not verified yet |
+
+The package managers pull in the rest of the GL stack (on Debian, for example, `libglx-mesa0` and `libgl1-mesa-dri`).
+The packaging recipes encode the same facts. If you change this table, update them too:
+- [`packaging/deb/control`](../packaging/deb/control): `Depends` and `Recommends` of the hand-written DEB
+- `CPACK_DEBIAN_PACKAGE_DEPENDS` in [`CMakeLists.txt`](../CMakeLists.txt): the CPack DEB
+- [`packaging/rpm/ocio.spec`](../packaging/rpm/ocio.spec): RPM requirements come from `DT_NEEDED` automatically
 
 There is also an implicit runtime requirement: a display server (X11 or Wayland) and, for hardware acceleration, `/dev/dri`.
 

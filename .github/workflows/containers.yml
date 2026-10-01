@@ -4,8 +4,18 @@ name: Container Images
   push:
     branches: [ main, master ]
     tags: [ 'v*' ]
+    # Tag pushes ignore path filters, so every release gets semver-tagged builders
+    paths:
+      - 'packaging/containers/Containerfile.*'
+      - '.github/workflows/containers.yml'
   pull_request:
     branches: [ main, master ]
+    paths:
+      - 'packaging/containers/Containerfile.*'
+      - '.github/workflows/containers.yml'
+  # Weekly rebuild: picks up base-image and distro package updates
+  schedule:
+    - cron: '0 4 * * 1'
   workflow_dispatch:
 
 jobs:
@@ -24,12 +34,14 @@ jobs:
         include:
           - distro: opensuse
             file: packaging/containers/Containerfile.opensuse
-            title: "Packathon openSUSE Runtime"
-            description: "Minimal vanilla openSUSE Tumbleweed runtime environment for ocio GUI"
+            title: "Packathon openSUSE Builder"
+            description: "openSUSE Tumbleweed build tools for ocio: CPack RPM, rpmbuild, AppImage, Flatpak"
+            smoke: "cmake --version && rpmbuild --version && appimagetool --version && flatpak-builder --version"
           - distro: debian
             file: packaging/containers/Containerfile.debian
-            title: "Packathon Debian Runtime"
-            description: "Minimal vanilla Debian Bookworm runtime environment for ocio GUI"
+            title: "Packathon Debian Builder"
+            description: "Debian Bookworm build tools for ocio: CPack DEB, dpkg-deb, AppImage, Flatpak"
+            smoke: "cmake --version && command -v dpkg-shlibdeps && appimagetool --version && flatpak-builder --version"
 
     steps:
       - name: Checkout repository
@@ -40,7 +52,7 @@ jobs:
 
       - name: Set lowercase image name
         run: |
-          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.distro }}" >> "$GITHUB_ENV"
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.distro }}-builder" >> "$GITHUB_ENV"
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
@@ -74,9 +86,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: packaging/containers
           file: ${{ matrix.file }}
-          target: runtime
           push: ${{ github.event_name != 'pull_request' }}
           load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -84,12 +95,11 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.distro }}
           cache-to: type=gha,mode=max,scope=${{ matrix.distro }}
 
-      - name: Verify image entrypoint
+      - name: Verify the build tools in the image
         run: |
           first_tag=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)
-          echo "Testing image entrypoint with tag: $first_tag"
-          docker run --rm "$first_tag" --version
-          docker run --rm "$first_tag" --help
+          echo "Testing build tools with tag: $first_tag"
+          docker run --rm "$first_tag" sh -c '${{ matrix.smoke }}'
 
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'

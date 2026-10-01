@@ -47,11 +47,16 @@ else
     echo "==> Warning: Failed to download appimagetool"
 fi
 
-echo "==> Pre-pulling openSUSE Tumbleweed container image with Podman..."
+echo "==> Pre-pulling the vanilla images used by the walkthrough and the demos..."
 podman pull registry.opensuse.org/opensuse/tumbleweed:latest || true
+podman pull docker.io/library/debian:bookworm-slim || true
+podman pull docker.io/library/ubuntu:latest || true
 
-echo "==> Pre-pulling official Packathon runtime images from GHCR..."
-podman pull ghcr.io/michelepagot/packathon/opensuse:latest || true
-podman pull ghcr.io/michelepagot/packathon/debian:latest || true
+echo "==> Pulling the Packathon builder images from GHCR (tagged with the local names the scripts use)..."
+for distro in opensuse debian; do
+    if podman pull "ghcr.io/michelepagot/packathon/${distro}-builder:latest"; then
+        podman tag "ghcr.io/michelepagot/packathon/${distro}-builder:latest" "localhost/packathon-${distro}:builder"
+    fi
+done
 
 echo "==> DevContainer post-create setup complete."

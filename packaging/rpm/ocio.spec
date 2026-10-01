@@ -15,6 +15,9 @@
 # Support optional multi-source offline builds (e.g. for hermetic OBS builds)
 %bcond_with vendored_raylib
 
+# Must match RAYLIB_VERSION in CMakeLists.txt (find_package ... EXACT)
+%global raylib_version 5.5
+
 Name:           ocio
 Version:        0.1.0
 Release:        1%{?dist}
@@ -23,7 +26,7 @@ License:        MIT
 URL:            https://github.com/example/ocio
 Source0:        %{name}-%{version}.tar.gz
 %if %{with vendored_raylib}
-Source1:        raylib-5.5.tar.gz
+Source1:        raylib-%{raylib_version}.tar.gz
 %endif
 
 BuildRequires:  cmake >= 3.16
@@ -36,7 +39,7 @@ BuildRequires:  alsa-devel
 %if %{with vendored_raylib}
 # Multi-source hermetic mode does not require system raylib-devel
 %else
-BuildRequires:  raylib-devel >= 5.0
+BuildRequires:  raylib-devel = %{raylib_version}
 %endif
 
 %description
@@ -49,7 +52,7 @@ abstractions like CPack.
 %if %{with vendored_raylib}
 %autosetup -a 1
 mkdir -p build/_deps
-mv raylib-5.5 build/_deps/raylib-src
+mv raylib-%{raylib_version} build/_deps/raylib-src
 %else
 %autosetup
 %endif
