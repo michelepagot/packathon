@@ -2,7 +2,7 @@
 
 This guide explains how **Packathon** uses [Podman](https://podman.io/) containers to provide clean, isolated, and reproducible environments for:
 1. **Running the GUI application**, either from the pre-built runtime images on GitHub Container Registry (`ghcr.io`) or from images you build locally, with display and GPU pass-through.
-2. **Testing & Verifying** the generated distribution packages (`.rpm`, `.deb`, and `.AppImage`) in pristine, untouched upstream distribution images (`openSUSE Tumbleweed` and `Debian Bookworm`) to prove that runtime dependencies resolve automatically.
+2. **Testing & Verifying** the generated distribution packages (`.rpm`, `.deb`, and `.AppImage`) in pristine, untouched upstream distribution images (`openSUSE Tumbleweed` and `Debian Bookworm`), to check that the package manager installs the declared runtime dependencies and that `ocio` starts.
 3. **Building** distribution packages (`.rpm`, `.deb`, and standalone archives) in container-isolated scratch spaces without installing compilers or dev libraries on the host.
 4. **AppImage** and **Flatpak** hermetic container builds and verification runs.
 
@@ -15,9 +15,9 @@ To prevent dependency creep and maintain strict control over required toolchains
 | Ecosystem | Stage | Image (published on GHCR / local tag) | Purpose | Minimal Package Set |
 |---|---|---|---|---|
 | **openSUSE** | `runtime` | `ghcr.io/michelepagot/packathon/opensuse:latest`<br>*(Local: `localhost/packathon-opensuse:runtime`)* | Running the `ocio` GUI application | `libX11-6`, `Mesa-libGL1`, `libGLU1`, `libasound2` *(zero compilers, zero devel headers)* |
-| **openSUSE** | `builder` | *Local: `localhost/packathon-opensuse:builder`* | All builds (`FETCH`, `LOCAL`, `SYSTEM`), CPack RPM, manual `rpmbuild`, AppImage, Flatpak | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `curl`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `raylib-devel`, `rpm-build`, `flatpak`, `flatpak-builder`, `appimagetool` |
+| **openSUSE** | `builder` | *Local: `localhost/packathon-opensuse:builder`* | All builds (`FETCH`, `LOCAL`, `SYSTEM`; `SYSTEM` fails while Tumbleweed ships a raylib other than `RAYLIB_VERSION`), CPack RPM, manual `rpmbuild`, AppImage, Flatpak | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `curl`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `raylib-devel`, `rpm-build`, `flatpak`, `flatpak-builder`, `appimagetool` |
 | **Debian** | `runtime` | `ghcr.io/michelepagot/packathon/debian:latest`<br>*(Local: `localhost/packathon-debian:runtime`)* | Running the `ocio` GUI application | `libx11-6`, `libgl1`, `libglu1-mesa`, `libglx-mesa0`, `libasound2` *(zero compilers, zero dev headers)* |
-| **Debian** | `builder` | *Local: `localhost/packathon-debian:builder`* | General builds (`FETCH`, `LOCAL`), CPack DEB, AppImage, Flatpak | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `curl`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev`, `flatpak`, `flatpak-builder`, `appimagetool` *(no raylib: Debian doesn't package it, so no `SYSTEM` mode)* |
+| **Debian** | `builder` | *Local: `localhost/packathon-debian:builder`* | General builds (`FETCH`, `LOCAL`), CPack DEB, `build-deb.sh`, AppImage, Flatpak | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `curl`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev`, `flatpak`, `flatpak-builder`, `appimagetool` *(no raylib: Debian doesn't package it, so no `SYSTEM` mode)* |
 
 ---
 
@@ -57,7 +57,7 @@ podman build --target runtime -t localhost/packathon-opensuse:runtime -f packagi
 
 ### Debian Bookworm Images
 ```bash
-# 1. Builder (FETCH and LOCAL modes, CPack DEB, AppImage, Flatpak)
+# 1. Builder (FETCH and LOCAL modes, CPack DEB, build-deb.sh, AppImage, Flatpak)
 podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
 
 # 2. Minimal runtime (runs the GUI): compiles ocio in the builder stage, keeps only the binary
@@ -70,7 +70,8 @@ podman build --target runtime -t localhost/packathon-debian:runtime -f packaging
 podman images 'localhost/packathon-*'
 
 # Rebuild after changing src/ or a Containerfile: re-run the same podman build command.
-# Layer caching makes this fast. Add --no-cache to also refresh the base image packages.
+# Layer caching makes this fast. Add --no-cache to re-run zypper/apt and pick up newer
+# packages, and --pull=always to also fetch a newer base image.
 
 # Remove the local images
 podman rmi localhost/packathon-opensuse:{builder,runtime} \
@@ -103,21 +104,26 @@ podman run --rm "$IMAGE" --help
 Podman can run the interactive `ocio` GUI on the host's physical display by sharing the X11 socket and granting access to the host GPU DRI device node (`/dev/dri`):
 
 ```bash
-# 1. Authorize local container connections to the X server
-xhost +local:$USER
+# 1. Allow your own user (and nobody else) to connect to the X server
+xhost +SI:localuser:$USER
 
-# 2. Launch the container
+# 2. Launch the container as your own user
 podman run --rm -it \
-  --net=host \
-  --ipc=host \
+  --userns=keep-id \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
   --device /dev/dri \
   "$IMAGE"
 ```
 
-> [!TIP]
-> The `--net=host --ipc=host` flags allow MIT-SHM (shared memory) communication between the raylib/GLFW client inside the container and the X server on the host, preventing display latency and protocol errors.
+Rootless Podman runs the image's `appuser` as a subordinate UID on the host, which the X server sees as a different user and refuses (`Authorization required`).
+`--userns=keep-id` runs the container as your own UID, so the `xhost` rule above matches.
+Avoid `xhost +local:`, which works without `--userns=keep-id` but opens the display to every local user.
+
+> [!NOTE]
+> Tested on an X11 session with an AMD GPU (hardware rendering through Mesa).
+> `--net=host` and `--ipc=host` are not needed: the mounted socket is enough to reach the X server.
+> Software rendering (no usable GPU) was not tested.
 
 ### 3. Running on Wayland
 ```bash
@@ -185,7 +191,7 @@ podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-opensus
 
 ## Building Canonical RPMs Manually in Podman (Without CPack)
 
-Students can build canonical RPM packages manually with `rpmbuild` using [`packaging/rpm/build-rpm.sh`](../packaging/rpm/build-rpm.sh) and [`packaging/rpm/ocio.spec`](../packaging/rpm/ocio.spec):
+You can build canonical RPM packages manually with `rpmbuild` using [`packaging/rpm/build-rpm.sh`](../packaging/rpm/build-rpm.sh) and [`packaging/rpm/ocio.spec`](../packaging/rpm/ocio.spec):
 
 ```bash
 podman run --rm -v "$PWD:/src:Z" -w /src \
@@ -193,18 +199,22 @@ podman run --rm -v "$PWD:/src:Z" -w /src \
   ./packaging/rpm/build-rpm.sh
 ```
 The script builds against the distro `raylib-devel` when its version matches the spec's `raylib_version`, and switches to `--with vendored_raylib` otherwise (it prints which one it picked).
+Tumbleweed currently ships raylib 6.0, so the script takes the vendored path: raylib is built from the bundled tarball and linked statically into `ocio`.
+The RPM is therefore bigger and has no `libraylib` requirement. Against a matching distro `raylib-devel`, `ocio` would link the shared `libraylib` and the RPM would require it.
 
 This produces in `./dist/`:
-- `ocio-0.1.0-1.x86_64.rpm` (38 KB binary RPM)
-- `ocio-0.1.0-1.src.rpm` (69 KB source RPM)
-- `ocio-debuginfo-0.1.0-1.x86_64.rpm` (20 KB debuginfo)
-- `ocio-debugsource-0.1.0-1.x86_64.rpm` (11 KB debugsource)
+- `ocio-0.1.0-1.x86_64.rpm` (binary RPM)
+- `ocio-0.1.0-1.src.rpm` (source RPM)
+- `ocio-debuginfo-0.1.0-1.x86_64.rpm` (debuginfo)
+- `ocio-debugsource-0.1.0-1.x86_64.rpm` (debugsource)
 
 ---
 
 ## Testing & Verifying Packages in Pristine Vanilla Containers
 
-A critical validation step is proving that generated packages are truly self-sufficient and declare correct dependencies without requiring manual intervention.
+This step checks that each package installs on a clean system with only its declared dependencies, and that `ocio` starts.
+`ocio --version` exits before opening a window, so it only proves the libraries the binary links directly (`DT_NEEDED`).
+The libraries GLFW loads later with `dlopen()` (X11, GLX) are declared by hand, and only a run with a display shows they are present.
 
 To test this, we mount the freshly generated package into an official, untouched vanilla upstream container (which has zero GUI, zero X11, and zero OpenGL packages installed), install it with the native package manager, and verify execution:
 
@@ -217,7 +227,8 @@ podman run --rm \
 ```
 **What happens:**
 1. Zypper inspects `/ocio.rpm` and finds ELF `DT_NEEDED` capabilities: `libOpenGL.so.0()(64bit)`, `libGLX.so.0()(64bit)`, `libc.so.6`, `libm.so.6`.
-2. Zypper automatically resolves and downloads the full driver stack (36 packages, including `Mesa-libGL1`, `libX11-6`, `Mesa-dri`, `libdrm`).
+2. Zypper installs the packages that provide those libraries, together with their own dependencies. For example, `libglvnd` provides `libOpenGL.so.0` and `libGLX.so.0`, and the GL stack brings `Mesa-libGL1`, `Mesa-dri`, `libdrm` and `libX11-6`. The exact list changes as Tumbleweed moves.
+   `ocio` never asks for `libX11-6`: no `DT_NEEDED` entry of `ocio` names it. It is a transitive dependency: `libGLX.so.0` itself links `libX11.so.6`, so the package that provides `libGLX.so.0` requires `libX11-6`.
 3. `ocio --version` executes successfully and prints `ocio 0.1.0`.
 
 ### Testing `.deb` on Pristine Debian Bookworm
@@ -228,8 +239,8 @@ podman run --rm \
   sh -c "apt-get update && apt-get install -y /ocio.deb && ocio --version"
 ```
 **What happens:**
-1. APT inspects `/ocio.deb` and reads `Depends: libc6 (>= 2.17), libgl1, libx11-6`.
-2. APT resolves the dependency tree and downloads 40 packages (including `libgl1`, `libglx-mesa0`, `libgl1-mesa-dri`, `libx11-6`).
+1. APT inspects `/ocio.deb` and reads `Depends: libc6 (>= …), libglx0, libx11-6`. `dpkg-shlibdeps` computed `libc6` from the binary; `libglx0` and `libx11-6` are declared by hand in `CMakeLists.txt`, because GLFW loads them with `dlopen()` and they leave no `DT_NEEDED` trace.
+2. APT installs those packages together with their own dependencies (for example `libglx-mesa0` and `libgl1-mesa-dri`).
 3. `ocio --version` executes successfully and prints `ocio 0.1.0`.
 
 ---
@@ -239,7 +250,7 @@ podman run --rm \
 Packathon builders come equipped with `appimagetool` pre-extracted into `/usr/lib/appimagetool` to run seamlessly inside containers without requiring FUSE. Because `ocio` links raylib statically, no external bundling tool (`linuxdeploy`) is needed.
 
 ### 1. Build `ocio-x86_64.AppImage`
-Run the build script inside either the openSUSE or Debian builder container:
+Run the build script inside the Debian builder container. An AppImage keeps the glibc baseline of the system it was built on, so one built on Tumbleweed would not start on Bookworm:
 ```bash
 podman run --rm -v "$PWD:/src:Z" -w /src \
   -e BUILD_DIR=/tmp/build \
@@ -289,7 +300,7 @@ Because network is prohibited during the build phase, CMake cannot use `FetchCon
 
 To solve this following Flathub best practices, `packaging/flatpak/org.packathon.ocio.yml` decomposes the build into two distinct modules:
 - **`raylib` module**: Clones the official Raylib 5.5 tag during the source download phase, compiles it inside the sandbox, and installs it into `/app` (`/app/lib`, `/app/include`).
-- **`ocio` module**: Configured with `-DRAYLIB_MODE=SYSTEM`. CMake's `find_package(raylib REQUIRED)` automatically detects the sandbox-installed Raylib in `/app` and links it, without requiring any network connectivity.
+- **`ocio` module**: Configured with `-DRAYLIB_MODE=SYSTEM`. CMake's `find_package(raylib 5.5 EXACT REQUIRED)` finds the sandbox-installed Raylib in `/app` and links it, without requiring any network connectivity. Its config file reports version `5.5.0`, which CMake accepts as an exact match for `5.5`.
 
 ### 1. Build `ocio.flatpak` Bundle
 ```bash

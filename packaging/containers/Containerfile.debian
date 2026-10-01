@@ -22,8 +22,9 @@
 #      podman build --target runtime -t localhost/packathon-debian:runtime -f packaging/containers/Containerfile.debian .
 #
 #   4. Run the GUI application using Podman on the host display:
-#      xhost +local:$USER
-#      podman run --rm --net=host --ipc=host \
+#      # (see docs/container-packaging.md, "Running on X11")
+#      xhost +SI:localuser:$USER
+#      podman run --rm --userns=keep-id \
 #        -e DISPLAY=$DISPLAY \
 #        -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
 #        --device /dev/dri \
