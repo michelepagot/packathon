@@ -1,38 +1,35 @@
 # =============================================================================
-# Packathon - Multi-Stage Debian Build & Runtime Container
+# Packathon - Debian Builder Container
 # =============================================================================
-# Separation of concerns:
-#   Stage 1 (builder): Strict build-time tools, dev headers, and dpkg-dev.
-#   Stage 2 (runtime): Vanilla minimal base + strictly runtime libraries only.
+# Tools only: compilers, dev headers, dpkg-dev, flatpak-builder, appimagetool.
+# The image contains no project source and no ocio binary: mount the checkout
+# at /src and name the script to run. With no command it opens a shell.
+#
+# ocio runs in vanilla upstream images instead, see the walkthrough in
+# docs/container-packaging.md.
 #
 # Usage:
-#   1. Build packages (default: FetchContent=ON, static raylib):
-#      podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
-#      podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
+#   1. Build the image (nothing is copied in, so the context is this directory):
+#      podman build -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian packaging/containers
+#
+#   2. Build packages with CPack (default: RAYLIB_MODE=FETCH, static raylib):
+#      podman run --rm -v "$PWD:/src:Z" localhost/packathon-debian:builder packaging/containers/build-package.sh
 #      # Generated .deb and .tar.gz packages are placed in ./dist/
 #
-#   2. Build with custom options (RAYLIB_MODE, RAYLIB_SHARED):
 #      # Build with shared raylib (libraylib.so):
-#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-debian:builder
+#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-debian:builder packaging/containers/build-package.sh
 #      # No RAYLIB_MODE=SYSTEM here: Debian does not package raylib (bookworm, trixie).
 #      # Build using pre-staged local source (offline/hermetic, no network):
-#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-debian:builder
+#      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-debian:builder packaging/containers/build-package.sh
 #
-#   3. Build lightweight runtime GUI container:
-#      podman build --target runtime -t localhost/packathon-debian:runtime -f packaging/containers/Containerfile.debian .
-#
-#   4. Run the GUI application using Podman on the host display:
-#      # (see docs/container-packaging.md, "Running on X11")
-#      xhost +SI:localuser:$USER
-#      podman run --rm --userns=keep-id \
-#        -e DISPLAY=$DISPLAY \
-#        -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
-#        --device /dev/dri \
-#        localhost/packathon-debian:runtime
+#   3. Other recipes (hand-written DEB, AppImage):
+#      podman run --rm -v "$PWD:/src:Z" localhost/packathon-debian:builder packaging/deb/build-deb.sh
+#      podman run --rm -v "$PWD:/src:Z" -e BUILD_DIR=/tmp/build -e OUTPUT_DIR=/src/dist \
+#        localhost/packathon-debian:builder packaging/appimage/build-appimage.sh
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# STAGE 1: Builder (Build-time dependencies only)
+# Builder (build-time tools only)
 # -----------------------------------------------------------------------------
 FROM debian:bookworm-slim AS builder
 
@@ -82,53 +79,6 @@ RUN curl -sLo /tmp/appimagetool https://github.com/AppImage/appimagetool/release
 
 WORKDIR /src
 
-# Copy project source into container for self-contained multi-stage build of runtime stage
-COPY . /src-build
-
-# Build binary in /build so Stage 2 can copy it directly
-RUN cmake -S /src-build -B /build -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build /build --config Release -j$(nproc)
-
-# Install shared packaging script
-COPY packaging/containers/build-package.sh /usr/local/bin/build-package.sh
-RUN chmod +x /usr/local/bin/build-package.sh
-
-# Default action when run with volume mount (-v "$PWD:/src:Z"):
-# Runs /usr/local/bin/build-package.sh, which compiles in an isolated /tmp/build scratchpad
-# and exports generated packages to /src/dist/ (configurable via RAYLIB_MODE and RAYLIB_SHARED).
-CMD ["/usr/local/bin/build-package.sh"]
-
-
-# -----------------------------------------------------------------------------
-# STAGE 2: Runtime (Runtime dependencies only on vanilla minimal Debian)
-# -----------------------------------------------------------------------------
-FROM debian:bookworm-slim AS runtime
-
-LABEL org.opencontainers.image.title="Packathon Debian Runtime" \
-      org.opencontainers.image.description="Minimal vanilla Debian runtime environment for ocio GUI"
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install strictly RUNTIME shared libraries required to execute ocio
-# (No gcc, no make, no cmake, no git, no dev packages)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        # [Runtime Graphics & Display Libraries]
-        libx11-6 \
-        libgl1 \
-        libglu1-mesa \
-        libglx-mesa0 \
-        # [Runtime Audio Library]
-        libasound2 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy compiled binary from builder stage
-COPY --from=builder /build/bin/ocio /usr/local/bin/ocio
-
-# Non-root user setup for running GUI application safely
-RUN useradd -m -u 1000 appuser
-USER appuser
-ENV HOME=/home/appuser
-
-ENTRYPOINT ["/usr/local/bin/ocio"]
+# No project source and no ocio build in the image: mount the checkout at /src
+# and name the script to run. With no command, the image opens a shell.
+CMD ["/bin/bash"]
