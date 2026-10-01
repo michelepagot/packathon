@@ -279,12 +279,15 @@ $ ./ocio-x86_64.AppImage --appimage-extract
 $ flatpak-builder --force-clean build-dir packaging/flatpak/org.packathon.ocio.yml
 $ flatpak-builder --export-bundle repo ocio.flatpak org.packathon.ocio
 
-# Run application inside Podman with X11 and DRI GPU pass-through
-$ podman run --rm -it --net=host --ipc=host \
-    -e DISPLAY=$DISPLAY \
+# Install the DEB in a vanilla container and run it with X11 and DRI GPU pass-through
+$ xhost +SI:localuser:$USER
+$ podman run --rm -it \
+    -e DISPLAY \
     -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
     --device /dev/dri \
-    ghcr.io/michelepagot/packathon/opensuse:latest</code></pre>
+    -v "$PWD/dist/ocio_0.1.0_amd64.deb:/tmp/ocio.deb:ro,Z" \
+    debian:bookworm-slim \
+    sh -c "apt-get update &amp;&amp; apt-get install -y /tmp/ocio.deb &amp;&amp; ocio"</code></pre>
     </main>
   </body>
 </html>

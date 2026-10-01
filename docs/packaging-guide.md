@@ -58,9 +58,9 @@ To adhere to official upstream distribution standards (openSUSE, Fedora) without
 ### Building Manually
 ```bash
 # Using the helper script inside the openSUSE builder container:
-podman run --rm -v "$PWD:/src:Z" -w /src \
-  localhost/packathon-opensuse:builder \
-  ./packaging/rpm/build-rpm.sh
+podman run --rm -v "$PWD:/src:Z" \
+  ghcr.io/michelepagot/packathon/opensuse-builder:latest \
+  packaging/rpm/build-rpm.sh
 ```
 The spec requires `raylib-devel = 5.5` (the `raylib_version` macro, kept equal to `RAYLIB_VERSION` in `CMakeLists.txt`).
 If the distro ships another version, `build-rpm.sh` falls back to `--with vendored_raylib`, which links raylib statically: the RPM is then bigger and has no `libraylib` requirement.

@@ -36,7 +36,7 @@ CPack can also produce TGZ, DEB and RPM from [`CMakeLists.txt`](CMakeLists.txt).
 
 For more detail, see:
 - [Packaging Guide](docs/packaging-guide.md): how each format works and what it costs
-- [Container-Based Packaging & Testing](docs/container-packaging.md): builder and runtime images, display pass-through, vanilla-container verification
+- [Container-Based Packaging & Testing](docs/container-packaging.md): builder images, the build/fail/fix/package/install walkthrough, display pass-through, vanilla-container verification
 
 ## Quick start
 
@@ -53,25 +53,31 @@ curl -L https://github.com/michelepagot/packathon/releases/latest/download/ocio-
 The tarball ships the binary and nothing else: the libraries it needs are whatever your system happens to have.
 The same release page has the routes that take care of that: `.rpm`, `.deb`, AppImage and Flatpak, plus Windows and macOS builds.
 
-To build them yourself instead, every recipe writes its artifacts to `dist/`. The CPack builds and `build-deb.sh` run inside containers and need only `podman`. The other recipes use host tools: `rpmbuild` and a C toolchain for the RPM, a C toolchain for the AppImage, and `flatpak-builder` for the Flatpak.
+To build them yourself instead, every recipe writes its artifacts to `dist/`. The builder images hold only the tools: you mount the checkout and name the script to run, so you need only `podman`. Run directly on the host, the recipes need their tools there: `rpmbuild` and a C toolchain for the RPM, a C toolchain for the AppImage, and `flatpak-builder` for the Flatpak.
 
 ```bash
-# Native packages via CPack, in the matching builder container
-podman build --target builder -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse .
-podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder   # .rpm + .tar.gz
+# The builder images are published on GHCR and pulled on first use
+# (to build them locally instead, see docs/container-packaging.md)
 
-podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
-podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder     # .deb + .tar.gz
+# Native packages via CPack, in the matching builder
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/opensuse-builder:latest packaging/containers/build-package.sh   # .rpm + .tar.gz
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/debian-builder:latest   packaging/containers/build-package.sh   # .deb + .tar.gz
 
-# The hand-written recipes
+# The hand-written recipes, in the builders
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/opensuse-builder:latest packaging/rpm/build-rpm.sh
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/debian-builder:latest   packaging/deb/build-deb.sh
+
+# ...or on the host
 ./packaging/rpm/build-rpm.sh
-./packaging/deb/build-deb.sh                # runs in the Debian builder container on non-Debian hosts
+./packaging/deb/build-deb.sh                # on non-Debian hosts, re-runs in localhost/packathon-debian:builder
 ./packaging/appimage/build-appimage.sh
 ./packaging/flatpak/build-flatpak.sh
 
 # Install and inspect each artifact in a pristine container
 ./packaging/demo/demo-rpm.sh                # likewise demo-deb.sh, demo-appimage.sh, demo-flatpak.sh
 ```
+
+The [container guide](docs/container-packaging.md#walkthrough-build-fail-fix-package-install) has a five-step walkthrough: build `ocio` in a builder, watch it fail in a vanilla image, install its dependencies by hand, package it, and install the package.
 
 To build and run `ocio` directly on your machine, see [`src/README.md`](src/README.md).
 
@@ -85,7 +91,7 @@ Every tagged release on GitHub publishes the full set of artifacts: Linux tarbal
 |---|---|
 | [`ci.yml`](.github/workflows/ci.yml) | Builds, checks the CLI flags and runs CPack on every PR and push to `main` |
 | [`release.yml`](.github/workflows/release.yml) | On `v*` tags: builds every artifact, installs each Linux package in a vanilla container, attaches them to the release |
-| [`containers.yml`](.github/workflows/containers.yml) | Publishes the openSUSE and Debian runtime images to `ghcr.io/michelepagot/packathon/{opensuse,debian}` (builder images are local only) |
+| [`containers.yml`](.github/workflows/containers.yml) | Publishes the openSUSE and Debian builder images to `ghcr.io/michelepagot/packathon/{opensuse,debian}-builder` |
 | [`pages.yml`](.github/workflows/pages.yml) | Deploys the slides to GitHub Pages |
 
 ## Repository map

@@ -1,152 +1,211 @@
 # Container-Based Packaging & Testing Guide
 
-This guide explains how **Packathon** uses [Podman](https://podman.io/) containers to provide clean, isolated, and reproducible environments for:
-1. **Running the GUI application**, either from the pre-built runtime images on GitHub Container Registry (`ghcr.io`) or from images you build locally, with display and GPU pass-through.
-2. **Testing & Verifying** the generated distribution packages (`.rpm`, `.deb`, and `.AppImage`) in pristine, untouched upstream distribution images (`openSUSE Tumbleweed` and `Debian Bookworm`), to check that the package manager installs the declared runtime dependencies and that `ocio` starts.
-3. **Building** distribution packages (`.rpm`, `.deb`, and standalone archives) in container-isolated scratch spaces without installing compilers or dev libraries on the host.
-4. **AppImage** and **Flatpak** hermetic container builds and verification runs.
+This guide explains how **Packathon** uses [Podman](https://podman.io/) containers. There are two kinds of container, each with one job:
+
+- **Builder images** (ours): only the tools to build `ocio` and every package format. They contain no project source and no build output: you mount the checkout at `/src` and run the build scripts.
+- **Vanilla images** (upstream, unmodified: `debian:bookworm-slim`, `registry.opensuse.org/opensuse/tumbleweed`): where `ocio` runs. Without the runtime dependencies it fails; after you install them by hand or through a package it works, and it can show the GUI on the host display.
+
+There is no image of ours that contains `ocio`.
 
 ---
 
-## Architectural Philosophy: Build vs. Runtime Separation
+## Builder Images
 
-To prevent dependency creep and maintain strict control over required toolchains, container images are split into distinct multi-stage targets via `Containerfile`s:
-
-| Ecosystem | Stage | Image (published on GHCR / local tag) | Purpose | Minimal Package Set |
+| Distro | Published on GHCR | Local tag ([if you build it](#using-a-local-build)) | Builds | Package set |
 |---|---|---|---|---|
-| **openSUSE** | `runtime` | `ghcr.io/michelepagot/packathon/opensuse:latest`<br>*(Local: `localhost/packathon-opensuse:runtime`)* | Running the `ocio` GUI application | `libX11-6`, `Mesa-libGL1`, `libGLU1`, `libasound2` *(zero compilers, zero devel headers)* |
-| **openSUSE** | `builder` | *Local: `localhost/packathon-opensuse:builder`* | All builds (`FETCH`, `LOCAL`, `SYSTEM`; `SYSTEM` fails while Tumbleweed ships a raylib other than `RAYLIB_VERSION`), CPack RPM, manual `rpmbuild`, AppImage, Flatpak | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `curl`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `raylib-devel`, `rpm-build`, `flatpak`, `flatpak-builder`, `appimagetool` |
-| **Debian** | `runtime` | `ghcr.io/michelepagot/packathon/debian:latest`<br>*(Local: `localhost/packathon-debian:runtime`)* | Running the `ocio` GUI application | `libx11-6`, `libgl1`, `libglu1-mesa`, `libglx-mesa0`, `libasound2` *(zero compilers, zero dev headers)* |
-| **Debian** | `builder` | *Local: `localhost/packathon-debian:builder`* | General builds (`FETCH`, `LOCAL`), CPack DEB, `build-deb.sh`, AppImage, Flatpak | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `curl`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev`, `flatpak`, `flatpak-builder`, `appimagetool` *(no raylib: Debian doesn't package it, so no `SYSTEM` mode)* |
+| **openSUSE** Tumbleweed | `ghcr.io/michelepagot/packathon/opensuse-builder` | `localhost/packathon-opensuse:builder` | All builds (`FETCH`, `LOCAL`, `SYSTEM`; `SYSTEM` fails while Tumbleweed ships a raylib other than `RAYLIB_VERSION`), CPack RPM, manual `rpmbuild`, AppImage, Flatpak | `gcc`, `gcc-c++`, `make`, `cmake`, `git`, `ca-certificates-mozilla`, `curl`, `file`, `tar`, `gzip`, `libX11-devel`, `libXrandr-devel`, `libXinerama-devel`, `libXcursor-devel`, `libXi-devel`, `Mesa-libGL-devel`, `alsa-devel`, `raylib-devel`, `rpm-build`, `flatpak`, `flatpak-builder`, `appimagetool` |
+| **Debian** bookworm | `ghcr.io/michelepagot/packathon/debian-builder` | `localhost/packathon-debian:builder` | General builds (`FETCH`, `LOCAL`), CPack DEB, `build-deb.sh`, AppImage, Flatpak | `gcc`, `g++`, `make`, `libc6-dev`, `cmake`, `git`, `ca-certificates`, `curl`, `file`, `tar`, `gzip`, `libx11-dev`, `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libglu1-mesa-dev`, `libasound2-dev`, `dpkg-dev`, `flatpak`, `flatpak-builder`, `appimagetool` *(no raylib: Debian doesn't package it, so no `SYSTEM` mode)* |
 
----
-
-## Published vs. Local Images
-
-Only the `runtime` stage is published, by the [`containers.yml`](../.github/workflows/containers.yml) workflow on every push to `main` and on every `v*` tag.
-The builder images are never pushed, so you always build them locally.
-
-| Image | Published | Local tag (convention used in this repo) |
-|---|---|---|
-| openSUSE `runtime` | `ghcr.io/michelepagot/packathon/opensuse:latest` | `localhost/packathon-opensuse:runtime` |
-| Debian `runtime` | `ghcr.io/michelepagot/packathon/debian:latest` | `localhost/packathon-debian:runtime` |
-| openSUSE `builder` | no | `localhost/packathon-opensuse:builder` |
-| Debian `builder` | no | `localhost/packathon-debian:builder` |
-
-Published runtime images are also tagged `main` and `sha-<commit>`. Use a `sha-` tag to pin a specific build.
-
-When to use which runtime image:
-- **Published**: to run the latest `main` without a local toolchain or build step.
-- **Local**: to run your own changes. The runtime stage compiles `ocio` from the current checkout (`COPY . /src-build` in the `builder` stage), so a local image contains your uncommitted edits. You also need a local image to work offline or to test a modified `Containerfile`.
-
----
-
-## Building Container Images Locally
-
-Run these commands from the repository root: the build context (`.`) is the whole checkout, filtered by [`.containerignore`](../.containerignore).
-Each `podman build --target <stage>` builds only that stage and the stages it depends on.
-
-### openSUSE Tumbleweed Images
+The images have no default build: name the script to run after the image. With no command they open a shell.
+`WORKDIR` is `/src`, so script paths are relative to the checkout:
 ```bash
-# 1. Builder (every raylib mode, CPack RPM, manual rpmbuild, AppImage, Flatpak)
-podman build --target builder -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse .
-
-# 2. Minimal runtime (runs the GUI): compiles ocio in the builder stage, keeps only the binary
-podman build --target runtime -t localhost/packathon-opensuse:runtime -f packaging/containers/Containerfile.opensuse .
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/debian-builder:latest packaging/containers/build-package.sh
 ```
+Because the scripts run from the mount, edits to the source or the scripts take effect without rebuilding the image.
 
-### Debian Bookworm Images
+### Getting the images
+
+The [`containers.yml`](../.github/workflows/containers.yml) workflow publishes both builders when a Containerfile changes on `main`, on every `v*` tag, and weekly.
+The commands in this guide use the published images: `podman run` pulls them on first use.
+Published images are also tagged `sha-<commit>` and with the release version. Use one of those instead of `latest` to pin a specific build.
+
+### Using a local build
+
+Build the images yourself to test a modified Containerfile or to work offline. Nothing is copied into the image, so the build context is `packaging/containers`:
 ```bash
-# 1. Builder (FETCH and LOCAL modes, CPack DEB, build-deb.sh, AppImage, Flatpak)
-podman build --target builder -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian .
-
-# 2. Minimal runtime (runs the GUI): compiles ocio in the builder stage, keeps only the binary
-podman build --target runtime -t localhost/packathon-debian:runtime -f packaging/containers/Containerfile.debian .
+podman build -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse packaging/containers
+podman build -t localhost/packathon-debian:builder   -f packaging/containers/Containerfile.debian   packaging/containers
+```
+Then use the local tag in place of the GHCR name in any command of this guide:
+```bash
+podman run --rm -v "$PWD:/src:Z" localhost/packathon-debian:builder packaging/containers/build-package.sh
+```
+The scripts that start a builder themselves (`build-deb.sh` on a non-Debian host) use the local tag. To use the published image there, pull it and give it the local tag:
+```bash
+podman pull ghcr.io/michelepagot/packathon/debian-builder:latest
+podman tag  ghcr.io/michelepagot/packathon/debian-builder:latest localhost/packathon-debian:builder
 ```
 
 ### Check, Rebuild, Clean Up
 ```bash
-# List the local images
+# List the published and local builder images
+podman images 'ghcr.io/michelepagot/packathon/*'
 podman images 'localhost/packathon-*'
 
-# Rebuild after changing src/ or a Containerfile: re-run the same podman build command.
-# Layer caching makes this fast. Add --no-cache to re-run zypper/apt and pick up newer
-# packages, and --pull=always to also fetch a newer base image.
+# Update the published images
+podman pull ghcr.io/michelepagot/packathon/opensuse-builder:latest
+podman pull ghcr.io/michelepagot/packathon/debian-builder:latest
 
-# Remove the local images
-podman rmi localhost/packathon-opensuse:{builder,runtime} \
-           localhost/packathon-debian:{builder,runtime}
+# Rebuild after changing a Containerfile: re-run the same podman build command.
+# Add --no-cache to re-run zypper/apt and pick up newer packages,
+# and --pull=always to also fetch a newer base image.
+
+# Remove the images
+podman rmi ghcr.io/michelepagot/packathon/opensuse-builder:latest ghcr.io/michelepagot/packathon/debian-builder:latest
+podman rmi localhost/packathon-opensuse:builder localhost/packathon-debian:builder
 ```
 
 ---
 
-## Running the GUI Application via Podman
+## Walkthrough: Build, Fail, Fix, Package, Install
 
-The runtime images run `ocio` as the entrypoint, under an unprivileged `appuser` (UID 1000), and contain only the runtime shared libraries.
-Arguments after the image name are passed to `ocio`.
+Five steps that show who owns the dependencies. Each step names the image it runs in.
+Steps 1, 2 and 4 need no display. Steps 3 and 5 end with a window, so they need the display flags explained in [Running the GUI from a Container](#running-the-gui-from-a-container); without a display (for example in Codespaces) they stop at the last `ocio` error.
 
-Set `IMAGE` once to choose between a published and a local image. The commands below work with either:
+### Step 1: build `ocio` from source (Debian builder)
 ```bash
-IMAGE=ghcr.io/michelepagot/packathon/opensuse:latest   # published, pulled on first use
-IMAGE=ghcr.io/michelepagot/packathon/debian:latest     # published, pulled on first use
-IMAGE=localhost/packathon-opensuse:runtime             # local, see Building Container Images Locally
-IMAGE=localhost/packathon-debian:runtime               # local, see Building Container Images Locally
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/debian-builder:latest \
+  sh -c 'cmake -S . -B build-debian -DCMAKE_BUILD_TYPE=Release && cmake --build build-debian -j"$(nproc)"'
 ```
+Result: `build-debian/bin/ocio` in the checkout.
+`build-debian/` is the default build directory of `build-deb.sh`, which reuses this binary in step 4 instead of compiling again.
 
-### 1. Quick Headless CLI Test
-Verify execution without launching a graphical window:
+### Step 2: run it in vanilla Debian and watch it fail
 ```bash
-podman run --rm "$IMAGE" --version
-podman run --rm "$IMAGE" --help
+podman run --rm -v "$PWD/build-debian/bin/ocio:/usr/local/bin/ocio:ro,Z" debian:bookworm-slim \
+  sh -c 'ldd /usr/local/bin/ocio; ocio --version; ocio'
 ```
+Expected:
+- `ldd`: only `libc.so.6` and `libm.so.6`, all found.
+- `ocio --version`: works (`ocio 0.1.0`).
+- `ocio`: `GLFW: Error: 65544 X11: Failed to load Xlib`, `Failed to initialize GLFW`, then a segmentation fault.
 
-### 2. Running on X11
-Podman can run the interactive `ocio` GUI on the host's physical display by sharing the X11 socket and granting access to the host GPU DRI device node (`/dev/dri`):
+The Debian binary is linked with `--as-needed` and records only `libc` and `libm` (see [Runtime dependencies](../src/README.md#runtime-dependencies)).
+The tools say everything is fine, and the program still dies after `main()`, when GLFW tries to `dlopen()` Xlib. This needs no display.
 
+### Step 2b: the same in vanilla Tumbleweed
+```bash
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/opensuse-builder:latest \
+  sh -c 'cmake -S . -B build-opensuse -DCMAKE_BUILD_TYPE=Release && cmake --build build-opensuse -j"$(nproc)"'
+podman run --rm -v "$PWD/build-opensuse/bin/ocio:/usr/local/bin/ocio:ro,Z" \
+  registry.opensuse.org/opensuse/tumbleweed:latest \
+  sh -c 'ldd /usr/local/bin/ocio; ocio --version; echo "exit $?"'
+```
+Expected:
+- `ldd`: `libOpenGL.so.0 => not found`, `libGLX.so.0 => not found`.
+- `ocio --version`: `error while loading shared libraries: libOpenGL.so.0`, `exit 127`.
+
+The openSUSE binary records `libOpenGL.so.0` and `libGLX.so.0` as `DT_NEEDED`, so the dynamic loader stops before `main()`: here the tools do see the problem.
+The rest of the walkthrough continues on Debian.
+
+### Step 3: install the dependencies by hand (vanilla Debian, with display)
+```bash
+xhost +SI:localuser:$USER
+podman run --rm -it \
+  -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix:ro --device /dev/dri \
+  -v "$PWD/build-debian/bin/ocio:/usr/local/bin/ocio:ro,Z" \
+  debian:bookworm-slim bash
+```
+Inside:
+```bash
+ocio                                                        # Failed to load Xlib
+apt-get update
+apt-get install -y --no-install-recommends libx11-6         # one library at a time...
+ocio                                                        # GLX: Failed to load GLX
+apt-get install -y --no-install-recommends libglx0
+ocio                                                        # the eye opens
+```
+Every `dlopen()` is a separate, later failure. The full list per distro is in [Runtime dependencies](../src/README.md#runtime-dependencies).
+
+### Step 4: build the package (Debian builder)
+```bash
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/debian-builder:latest packaging/deb/build-deb.sh
+```
+Result: `dist/ocio_0.1.0_amd64.deb`, built with the hand-written recipe ([`packaging/deb/`](../packaging/deb/)), with `Depends: libc6 (>= …), libglx0, libx11-6`.
+`build-deb.sh` compiles only if `build-debian/bin/ocio` does not exist: after a source change, delete `build-debian/` or re-run step 1.
+The CPack alternative is `packaging/containers/build-package.sh` (see [Building Packages in the Builder Images](#building-packages-in-the-builder-images)).
+
+### Step 5: install the package and run it (vanilla Debian, with display)
+```bash
+xhost +SI:localuser:$USER
+podman run --rm -it \
+  -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix:ro --device /dev/dri \
+  -v "$PWD/dist/ocio_0.1.0_amd64.deb:/tmp/ocio.deb:ro,Z" \
+  debian:bookworm-slim \
+  sh -c 'apt-get update && apt-get install -y /tmp/ocio.deb && ocio'
+```
+APT installs the declared dependencies and the packages they pull in, then the window opens.
+[`packaging/demo/demo-deb.sh`](../packaging/demo/demo-deb.sh) covers this step without a display: it stops at `ldd` and `dpkg --verify`.
+
+### openSUSE variant
+
+The same steps work with `ghcr.io/michelepagot/packathon/opensuse-builder:latest`, `registry.opensuse.org/opensuse/tumbleweed`, `zypper` and [`packaging/rpm/build-rpm.sh`](../packaging/rpm/build-rpm.sh). Steps 1 and 2 are step 2b.
+In step 3, `libglvnd` provides `libOpenGL.so.0` and `libGLX.so.0`, and brings `libX11-6` with it.
+Unlike `build-deb.sh`, `build-rpm.sh` always compiles again from the spec.
+
+---
+
+## Running the GUI from a Container
+
+`ocio` runs in a vanilla image, with either the hand-installed libraries (walkthrough step 3) or a package (step 5).
+
+### Running on X11
 ```bash
 # 1. Allow your own user (and nobody else) to connect to the X server
 xhost +SI:localuser:$USER
 
-# 2. Launch the container as your own user
+# 2. Share the X11 socket and the GPU device nodes
 podman run --rm -it \
-  --userns=keep-id \
-  -e DISPLAY=$DISPLAY \
+  -e DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
   --device /dev/dri \
-  "$IMAGE"
+  debian:bookworm-slim bash
 ```
+- `-e DISPLAY` passes the host's display name.
+- `-v /tmp/.X11-unix:/tmp/.X11-unix:ro` mounts the X server socket.
+- `--device /dev/dri` gives access to the GPU for hardware rendering.
+- `xhost +SI:localuser:$USER` lets processes running as your UID connect. Avoid `xhost +local:`, which opens the display to every local user.
 
-Rootless Podman runs the image's `appuser` as a subordinate UID on the host, which the X server sees as a different user and refuses (`Authorization required`).
-`--userns=keep-id` runs the container as your own UID, so the `xhost` rule above matches.
-Avoid `xhost +local:`, which works without `--userns=keep-id` but opens the display to every local user.
+The vanilla images run as root, which rootless Podman maps to your own UID on the host, so the `xhost` rule matches.
+If the process in the container runs as another user, rootless Podman maps it to a subordinate UID, which the X server refuses (`Authorization required`). Add `--userns=keep-id` in that case: it runs the container as your own UID.
 
 > [!NOTE]
 > Tested on an X11 session with an AMD GPU (hardware rendering through Mesa).
 > `--net=host` and `--ipc=host` are not needed: the mounted socket is enough to reach the X server.
 > Software rendering (no usable GPU) was not tested.
 
-### 3. Running on Wayland
+### Running on Wayland
+
+> [!NOTE]
+> Not tested. The bundled GLFW is probably built for X11 only, in which case `ocio` needs XWayland and the X11 recipe above.
+
 ```bash
 podman run --rm -it \
   -e WAYLAND_DISPLAY=$WAYLAND_DISPLAY \
   -v "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY:$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY:ro" \
   --device /dev/dri \
-  "$IMAGE"
+  debian:bookworm-slim bash
 ```
 
 ---
 
-## Obtaining Packaging Artifacts (.rpm & .deb)
+## Building Packages in the Builder Images
 
-Container builds compile the application in an isolated scratch space (`/tmp/build`) inside the container via the shared helper script [`packaging/containers/build-package.sh`](../packaging/containers/build-package.sh). This guarantees that host CMake caches (`CMakeCache.txt`) are never overwritten or conflicted. Finished packages and the raw `ocio` binary are automatically exported into `./dist/` on the host:
-
-> [!NOTE]
-> Every command in this section and the ones below uses the `builder` images. These are **local only** (not published), so build them first, see [Building Container Images Locally](#building-container-images-locally).
-> With no command, the builder images run [`build-package.sh`](../packaging/containers/build-package.sh), which writes to `/src/dist`. Mount the checkout at `/src` (`-v "$PWD:/src:Z"`) to get the artifacts in `./dist/` on the host.
+The CPack builds use the shared helper script [`packaging/containers/build-package.sh`](../packaging/containers/build-package.sh). It compiles in an isolated scratch space (`/tmp/build`) inside the container, so host CMake caches (`CMakeCache.txt`) are never touched, and exports the packages and the raw `ocio` binary to `/src/dist`, which is `./dist/` on the host.
 
 ### Generate `.rpm`, `.tar.gz`, and raw binary (openSUSE)
 ```bash
-podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/opensuse-builder:latest packaging/containers/build-package.sh
 ```
 **Output in `./dist/`:**
 - `ocio` (standalone binary)
@@ -155,7 +214,7 @@ podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-opensuse:builder
 
 ### Generate `.deb`, `.tar.gz`, and raw binary (Debian)
 ```bash
-podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/debian-builder:latest packaging/containers/build-package.sh
 ```
 **Output in `./dist/`:**
 - `ocio` (standalone binary)
@@ -163,7 +222,7 @@ podman run --rm -v "$PWD:/src:Z" -w /src localhost/packathon-debian:builder
 - `ocio-0.1.0-Linux.tar.gz`
 
 ### Configuring Build Matrix Options in Containers
-The shared packaging script ([`packaging/containers/build-package.sh`](../packaging/containers/build-package.sh)) supports configuring CMake options directly via container environment variables (`-e`):
+[`build-package.sh`](../packaging/containers/build-package.sh) reads CMake options from container environment variables (`-e`):
 
 | Variable | Default / Options | Purpose |
 |---|---|---|
@@ -173,30 +232,26 @@ The shared packaging script ([`packaging/containers/build-package.sh`](../packag
 **Examples across the matrix:**
 ```bash
 # 1. Standard build (FETCH mode, downloads Raylib via git):
-podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=FETCH localhost/packathon-opensuse:builder
+podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=FETCH ghcr.io/michelepagot/packathon/opensuse-builder:latest packaging/containers/build-package.sh
 
 # 2. Hermetic / offline build (LOCAL mode, uses pre-staged source with zero network):
-podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-opensuse:builder
+podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL ghcr.io/michelepagot/packathon/opensuse-builder:latest packaging/containers/build-package.sh
 
 # 3. Canonical distro build (SYSTEM mode, uses the distro raylib-devel in the openSUSE builder).
 #    CMake stops with "Could not find a configuration file for package raylib that exactly
 #    matches requested version" if Tumbleweed ships a raylib other than RAYLIB_VERSION:
-podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=SYSTEM localhost/packathon-opensuse:builder
+podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=SYSTEM ghcr.io/michelepagot/packathon/opensuse-builder:latest packaging/containers/build-package.sh
 
 # 4. Build packages linking Raylib dynamically:
-podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON localhost/packathon-opensuse:builder
+podman run --rm -v "$PWD:/src:Z" -e RAYLIB_SHARED=ON ghcr.io/michelepagot/packathon/opensuse-builder:latest packaging/containers/build-package.sh
 ```
 
----
-
-## Building Canonical RPMs Manually in Podman (Without CPack)
+### Building Canonical RPMs Manually (Without CPack)
 
 You can build canonical RPM packages manually with `rpmbuild` using [`packaging/rpm/build-rpm.sh`](../packaging/rpm/build-rpm.sh) and [`packaging/rpm/ocio.spec`](../packaging/rpm/ocio.spec):
 
 ```bash
-podman run --rm -v "$PWD:/src:Z" -w /src \
-  localhost/packathon-opensuse:builder \
-  ./packaging/rpm/build-rpm.sh
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/opensuse-builder:latest packaging/rpm/build-rpm.sh
 ```
 The script builds against the distro `raylib-devel` when its version matches the spec's `raylib_version`, and switches to `--with vendored_raylib` otherwise (it prints which one it picked).
 Tumbleweed currently ships raylib 6.0, so the script takes the vendored path: raylib is built from the bundled tarball and linked statically into `ocio`.
@@ -208,13 +263,20 @@ This produces in `./dist/`:
 - `ocio-debuginfo-0.1.0-1.x86_64.rpm` (debuginfo)
 - `ocio-debugsource-0.1.0-1.x86_64.rpm` (debugsource)
 
+### Building the DEB Manually (Without CPack)
+
+```bash
+podman run --rm -v "$PWD:/src:Z" ghcr.io/michelepagot/packathon/debian-builder:latest packaging/deb/build-deb.sh
+```
+This is walkthrough step 4. On a host without `dpkg-shlibdeps`, `./packaging/deb/build-deb.sh` re-runs itself in the Debian builder.
+
 ---
 
 ## Testing & Verifying Packages in Pristine Vanilla Containers
 
 This step checks that each package installs on a clean system with only its declared dependencies, and that `ocio` starts.
 `ocio --version` exits before opening a window, so it only proves the libraries the binary links directly (`DT_NEEDED`).
-The libraries GLFW loads later with `dlopen()` (X11, GLX) are declared by hand, and only a run with a display shows they are present.
+The libraries GLFW loads later with `dlopen()` (X11, GLX) are declared by hand, and only a run with a display shows they are present (walkthrough step 5).
 
 To test this, we mount the freshly generated package into an official, untouched vanilla upstream container (which has zero GUI, zero X11, and zero OpenGL packages installed), install it with the native package manager, and verify execution:
 
@@ -252,11 +314,11 @@ Packathon builders come equipped with `appimagetool` pre-extracted into `/usr/li
 ### 1. Build `ocio-x86_64.AppImage`
 Run the build script inside the Debian builder container. An AppImage keeps the glibc baseline of the system it was built on, so one built on Tumbleweed would not start on Bookworm:
 ```bash
-podman run --rm -v "$PWD:/src:Z" -w /src \
+podman run --rm -v "$PWD:/src:Z" \
   -e BUILD_DIR=/tmp/build \
   -e OUTPUT_DIR=/src/dist \
-  localhost/packathon-debian:builder \
-  ./packaging/appimage/build-appimage.sh
+  ghcr.io/michelepagot/packathon/debian-builder:latest \
+  packaging/appimage/build-appimage.sh
 ```
 The resulting `ocio-x86_64.AppImage` (~1.4 MB) is placed in `./dist/`.
 
@@ -304,9 +366,9 @@ To solve this following Flathub best practices, `packaging/flatpak/org.packathon
 
 ### 1. Build `ocio.flatpak` Bundle
 ```bash
-podman run --privileged --rm -v "$PWD:/src:Z" -w /src \
-  localhost/packathon-debian:builder \
-  ./packaging/flatpak/build-flatpak.sh
+podman run --privileged --rm -v "$PWD:/src:Z" \
+  ghcr.io/michelepagot/packathon/debian-builder:latest \
+  packaging/flatpak/build-flatpak.sh
 ```
 This script:
 1. Adds the Flathub remote inside the container.
@@ -318,7 +380,7 @@ This script:
 Install and run the bundle inside a privileged container:
 ```bash
 podman run --privileged --rm -v "$PWD/dist:/dist:ro,Z" \
-  localhost/packathon-debian:builder \
+  ghcr.io/michelepagot/packathon/debian-builder:latest \
   sh -c "flatpak install -y --user /dist/ocio.flatpak && flatpak run org.packathon.ocio --version"
 ```
 *(Output: `ocio 0.1.0`)*
