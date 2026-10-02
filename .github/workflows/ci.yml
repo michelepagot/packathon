@@ -160,13 +160,13 @@ jobs:
             debian:bookworm-slim \
             /ocio.AppImage --appimage-extract-and-run --version
 
-      # - name: "Packaging Mode: Flatpak (Containerized build-flatpak.sh)"
-      #   run: |
-      #     rm -rf dist
-      #     podman run --privileged --rm -v "$PWD:/src:Z" -w /src \
-      #       localhost/packathon-debian:builder \
-      #       ./packaging/flatpak/build-flatpak.sh
-      #     ls -la dist/
+      - name: "Packaging Mode: Flatpak (Containerized build-flatpak.sh)"
+        run: |
+          rm -rf dist
+          podman run --privileged --rm -v "$PWD:/src:Z" -w /src \
+            localhost/packathon-debian:builder \
+            ./packaging/flatpak/build-flatpak.sh
+          ls -la dist/
 
       # - name: Verify Flatpak bundle in Debian builder container
       #   run: |
