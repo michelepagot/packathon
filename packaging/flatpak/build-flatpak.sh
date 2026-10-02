@@ -26,18 +26,8 @@ if ! flatpak info "org.freedesktop.Platform//${BRANCH}" >/dev/null 2>&1 || \
 fi
 echo "SDK and Runtime ${BRANCH} found."
 
-# In Freedesktop SDK >= 24.08 (including 25.08), appstream-compose was replaced by
-# /usr/libexec/appstreamcli-compose. flatpak-builder expects appstream-compose in PATH
-# inside the SDK to compose metadata. Ensure symlink exists if writable.
-for sdk_files in /var/lib/flatpak/runtime/org.freedesktop.Sdk/x86_64/"${BRANCH}"/active/files \
-                 "${HOME}/.local/share/flatpak/runtime/org.freedesktop.Sdk/x86_64/${BRANCH}/active/files"; do
-    if [ -d "${sdk_files}/bin" ] && [ -f "${sdk_files}/libexec/appstreamcli-compose" ] && [ ! -e "${sdk_files}/bin/appstream-compose" ]; then
-        ln -sf /usr/libexec/appstreamcli-compose "${sdk_files}/bin/appstream-compose" 2>/dev/null || true
-    fi
-done
-
 echo "=== 2. Building application with flatpak-builder ==="
-flatpak-builder --force-clean --state-dir="${STATE_DIR}" --repo="${REPO_DIR}" "${BUILD_DIR}" "${MANIFEST}"
+flatpak-builder --force-clean --disable-rofiles-fuse --state-dir="${STATE_DIR}" --repo="${REPO_DIR}" "${BUILD_DIR}" "${MANIFEST}"
 
 echo "=== 3. Exporting single-file Flatpak bundle ==="
 flatpak build-bundle "${REPO_DIR}" "${BUNDLE}" org.packathon.ocio
