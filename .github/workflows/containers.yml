@@ -47,6 +47,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up QEMU for multi-architecture builds
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -88,17 +91,19 @@ jobs:
         with:
           context: packaging/containers
           file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.distro }}
           cache-to: type=gha,mode=max,scope=${{ matrix.distro }}
 
       - name: Verify the build tools in the image
+        if: github.event_name != 'pull_request'
         run: |
           first_tag=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)
-          echo "Testing build tools with tag: $first_tag"
+          echo "Testing published multi-arch image with tag: $first_tag"
+          docker pull "$first_tag"
           docker run --rm "$first_tag" sh -c '${{ matrix.smoke }}'
 
       - name: Generate artifact attestation
