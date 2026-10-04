@@ -83,7 +83,9 @@ RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes /etc/dpkg/dpkg.cfg.d/docker && \
     && rm -rf /var/lib/apt/lists/*
 
 # Install appimagetool (pre-extracted to run inside container without FUSE)
-RUN curl -sLo /tmp/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage && \
+# Dynamically detect architecture (x86_64 vs aarch64) to support multi-platform builder images
+RUN ARCH=$(uname -m) && \
+    curl -sLo /tmp/appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage" && \
     chmod +x /tmp/appimagetool && \
     cd /tmp && ./appimagetool --appimage-extract && \
     mv squashfs-root /usr/lib/appimagetool && \
@@ -92,8 +94,9 @@ RUN curl -sLo /tmp/appimagetool https://github.com/AppImage/appimagetool/release
 
 # appimagetool otherwise downloads the type2 runtime itself at every build,
 # and can hang there: fetch it once and pass it explicitly.
-RUN curl -sLo /tmp/runtime-x86_64 https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 && \
-    mv /tmp/runtime-x86_64 /usr/lib/runtime-x86_64
+RUN ARCH=$(uname -m) && \
+    curl -sLo "/tmp/runtime-${ARCH}" "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-${ARCH}" && \
+    mv "/tmp/runtime-${ARCH}" "/usr/lib/runtime-${ARCH}"
 
 # Pre-install Flatpak runtime and SDK for building org.packathon.ocio.
 # The remote is deleted afterwards so no network remote remains configured.
