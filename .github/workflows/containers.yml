@@ -2,14 +2,14 @@ name: Container Images
 
 "on":
   push:
-    branches: [ main, master ]
+    branches: [ main ]
     tags: [ 'v*' ]
     # Tag pushes ignore path filters, so every release gets semver-tagged builders
     paths:
       - 'packaging/containers/**'
       - '.github/workflows/containers.yml'
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
     paths:
       - 'packaging/containers/**'
       - '.github/workflows/containers.yml'
@@ -19,18 +19,24 @@ name: Container Images
   workflow_dispatch:
 
 jobs:
-  build-and-publish:
-    name: Build & Publish (${{ matrix.distro }})
-    runs-on: ubuntu-latest
+  build:
+    name: Build (${{ matrix.distro }} - ${{ matrix.platform.arch_slug }})
+    runs-on: ${{ matrix.platform.os }}
     permissions:
       contents: read
       packages: write
-      id-token: write
-      attestations: write
 
     strategy:
       fail-fast: false
       matrix:
+        distro: [opensuse, debian]
+        platform:
+          - os: ubuntu-latest
+            arch: linux/amd64
+            arch_slug: amd64
+          - os: ubuntu-24.04-arm
+            arch: linux/arm64
+            arch_slug: arm64
         include:
           - distro: opensuse
             file: packaging/containers/Containerfile.opensuse
@@ -68,6 +74,114 @@ jobs:
         with:
           images: |
             ${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+
+      # On PR: build and load locally to run smoke test natively on the runner
+      - name: Build image (PR)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: packaging/containers
+          file: ${{ matrix.file }}
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:test
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
+
+      - name: Verify the build tools in the image (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          docker run --rm ${{ env.IMAGE_NAME }}:test sh -c '${{ matrix.smoke }}'
+
+      # On push: build natively and push single-arch image by digest to GHCR
+      - name: Build and push by digest
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: packaging/containers
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platform.arch }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
+
+      - name: Verify the build tools in the image
+        if: github.event_name != 'pull_request'
+        run: |
+          docker pull "${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          docker run --rm "${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" sh -c '${{ matrix.smoke }}'
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge & Publish (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: opensuse
+            title: "Packathon openSUSE Builder"
+            description: "openSUSE Tumbleweed build tools for ocio: CPack RPM, rpmbuild, AppImage, Flatpak"
+          - distro: debian
+            title: "Packathon Debian Builder"
+            description: "Debian Bookworm build tools for ocio: CPack DEB, dpkg-deb, AppImage, Flatpak"
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.distro }}-*
+          merge-multiple: true
+
+      - name: Set lowercase image name
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.distro }}-builder" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.IMAGE_NAME }}
           flavor: |
             latest=auto
           tags: |
@@ -77,34 +191,34 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
             org.opencontainers.image.description=${{ matrix.description }}
 
-      - name: Build and push container image
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: packaging/containers
-          file: ${{ matrix.file }}
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.distro }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.distro }}
+      - name: Create manifest list and push
+        id: manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            --metadata-file /tmp/metadata.json \
+            $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
-      - name: Verify the build tools in the image
+          manifest_digest=$(jq -r '.["containerimage.descriptor"].digest // empty' /tmp/metadata.json)
+          if [ -z "$manifest_digest" ]; then
+            first_tag=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)
+            manifest_digest=$(docker buildx imagetools inspect --raw "$first_tag" | sha256sum | awk '{print "sha256:" $1}')
+          fi
+          echo "digest=$manifest_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect image
         run: |
           first_tag=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)
-          echo "Testing build tools with tag: $first_tag"
-          docker run --rm "$first_tag" sh -c '${{ matrix.smoke }}'
+          docker buildx imagetools inspect "$first_tag"
 
       - name: Generate artifact attestation
-        if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
           push-to-registry: true

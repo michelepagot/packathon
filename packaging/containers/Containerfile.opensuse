@@ -38,7 +38,13 @@ LABEL org.opencontainers.image.title="Packathon openSUSE Builder" \
       org.opencontainers.image.description="Build-time environment for compiling ocio and packaging RPMs"
 
 # Install build tools and development headers
-RUN zypper --non-interactive refresh && \
+# Temporary workaround: download.opensuse.org (MirrorBrain) can redirect CI runners to regional
+# mirrors that are in the middle of synchronization, causing package digest verification failures
+# (e.g. exit code 8 on noarch packages like file-magic). Rewriting repo URLs to https://cdn.opensuse.org
+# routes requests through Fastly CDN (which requires HTTPS) and serves consistent, synchronized packages.
+RUN sed -i -e 's|http://download.opensuse.org|https://cdn.opensuse.org|g' \
+           -e 's|https://download.opensuse.org|https://cdn.opensuse.org|g' /etc/zypp/repos.d/*.repo && \
+    zypper --non-interactive refresh && \
     zypper --non-interactive in --no-recommends \
         # [Build-Time Tools]
         gcc \
@@ -78,7 +84,9 @@ RUN zypper --non-interactive refresh && \
     && rm -rf /var/cache/zypp/*
 
 # Install appimagetool (pre-extracted to run inside container without FUSE)
-RUN curl -sLo /tmp/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage && \
+# Dynamically detect architecture (x86_64 vs aarch64) to support multi-platform builder images
+RUN ARCH=$(uname -m) && \
+    curl -sLo /tmp/appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage" && \
     chmod +x /tmp/appimagetool && \
     cd /tmp && ./appimagetool --appimage-extract && \
     mv squashfs-root /usr/lib/appimagetool && \
@@ -87,8 +95,9 @@ RUN curl -sLo /tmp/appimagetool https://github.com/AppImage/appimagetool/release
 
 # appimagetool otherwise downloads the type2 runtime itself at every build,
 # and can hang there: fetch it once and pass it explicitly.
-RUN curl -sLo /tmp/runtime-x86_64 https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 && \
-    mv /tmp/runtime-x86_64 /usr/lib/runtime-x86_64
+RUN ARCH=$(uname -m) && \
+    curl -sLo "/tmp/runtime-${ARCH}" "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-${ARCH}" && \
+    mv "/tmp/runtime-${ARCH}" "/usr/lib/runtime-${ARCH}"
 
 # Pre-install Flatpak runtime and SDK for building org.packathon.ocio.
 # The remote is deleted afterwards so no network remote remains configured.
@@ -97,8 +106,9 @@ RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flath
         org.freedesktop.Platform//25.08 \
         org.freedesktop.Sdk//25.08 && \
     flatpak remote-delete --force flathub && \
+    ARCH=$(uname -m) && \
     ln -sf /usr/libexec/appstreamcli-compose \
-        /var/lib/flatpak/runtime/org.freedesktop.Sdk/x86_64/25.08/active/files/bin/appstream-compose
+        "/var/lib/flatpak/runtime/org.freedesktop.Sdk/${ARCH}/25.08/active/files/bin/appstream-compose"
 
 RUN echo "export PS1='\[\e[32m\][OPENSUSE BUILDER]\w\[\e[0m\]# '" >> /root/.bashrc && \
     echo '[ -f /usr/share/fzf/shell/key-bindings.bash ] && source /usr/share/fzf/shell/key-bindings.bash' >> /root/.bashrc
