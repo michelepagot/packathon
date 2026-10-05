@@ -6,12 +6,12 @@ name: Container Images
     tags: [ 'v*' ]
     # Tag pushes ignore path filters, so every release gets semver-tagged builders
     paths:
-      - 'packaging/containers/Containerfile.*'
+      - 'packaging/containers/**'
       - '.github/workflows/containers.yml'
   pull_request:
     branches: [ main, master ]
     paths:
-      - 'packaging/containers/Containerfile.*'
+      - 'packaging/containers/**'
       - '.github/workflows/containers.yml'
   # Weekly rebuild: picks up base-image and distro package updates
   schedule:
