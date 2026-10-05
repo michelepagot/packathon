@@ -72,6 +72,8 @@ RUN zypper --non-interactive refresh && \
         # elfutils provides eu-strip and eu-elfcompress, required by flatpak-builder
         # to strip debug symbols from built binaries during packaging
         elfutils \
+        # Demo tools
+        fzf \
     && zypper clean -a \
     && rm -rf /var/cache/zypp/*
 
@@ -97,6 +99,11 @@ RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flath
     flatpak remote-delete --force flathub && \
     ln -sf /usr/libexec/appstreamcli-compose \
         /var/lib/flatpak/runtime/org.freedesktop.Sdk/x86_64/25.08/active/files/bin/appstream-compose
+
+RUN echo "export PS1='\[\e[32m\][OPENSUSE BUILDER]\w\[\e[0m\]# '" >> /root/.bashrc && \
+    echo '[ -f /usr/share/fzf/shell/key-bindings.bash ] && source /usr/share/fzf/shell/key-bindings.bash' >> /root/.bashrc
+
+COPY cmd_history /root/.bash_history
 
 WORKDIR /src
 
