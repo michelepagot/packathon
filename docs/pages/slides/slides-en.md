@@ -149,7 +149,7 @@ cannot open shared object file: No such file or directory
 <!-- .element: class="fragment" -->
 
 <div class="center-card fragment">
-  <img src="image/rabbit_hole_2.jpeg" alt="Down the rabbit hole" style="max-height: 360px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);" />
+  <img src="image/rabbit_hole_2_vi.png" alt="Down the rabbit hole" style="max-height: 360px; border: none; box-shadow: none;" />
 </div>
 
 Note:
@@ -179,7 +179,7 @@ Let us look at what actually happens under the hood when Linux launches a binary
 
 Note:
 What actually happens at launch:
-"When an executable is launched, execution does not start in main(). The operating system's only role is to load the binary into memory and pass control to userspace helper software: the dynamic linker (ld.so). The dynamic linker is responsible for loading all required shared libraries before handing control over to our C code. If even a single library is missing, ld.so terminates the process immediately with exit code 127. The kernel did not fail, and our code did not crash—it never had the chance to execute a single instruction."
+"When an executable is launched, execution does not start in main(). The operating system's only role is to load the binary into memory and pass control to userspace helper software: the dynamic linker (ld.so). The dynamic linker is responsible for loading all required shared libraries before handing control over to our C code. If even a single library is missing, ld.so terminates the process immediately with exit code 127. The kernel did not fail, and our code did not crash - it never had the chance to execute a single instruction."
 
 Under the hood:
 1. Shell: locates `/usr/bin/ocio` via `$PATH` (`command -v ocio`).
@@ -193,6 +193,7 @@ Showcase command:
 
 Bridge to the next slide:
 "Let us inspect the binary directly and see what the dynamic linker was looking for."
+"The kernel validates the 16-byte e_ident header (\x7fELF). Remember those 16 bytes: we will see in Chapter 5 how AppImage cleverly re-purposes the unused padding at the end of that header."
 
 --
 
@@ -303,9 +304,18 @@ Transition to Route 1: we will focus in depth on the Big 4 Desktop Formats (RPM,
 
 ## RPM: Native Distro Standard
 
+<div class="grid-2" style="align-items: center; gap: 40px; margin-top: 30px;">
+<div style="flex: 0 0 auto;">
+  <img src="image/maximum_rpm.png" alt="Maximum RPM book cover" style="max-height: 380px; width: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+</div>
+<div style="flex: 1; font-size: 1.05em; line-height: 1.8;">
+
 * *Marc Ewing &amp; Erik Troan* (Red Hat, 1997)
 * Archive with dependency metadata
 * Enterprise &amp; distro standard (LSB)
+
+</div>
+</div>
 
 Note:
 Introducing RPM:
@@ -415,27 +425,28 @@ Header inspection:
 
 --
 
-## Live Demo: RPM
+## The --as-needed Trap
 
-RPM installation in a *vanilla* openSUSE Tumbleweed container:
+* <!-- .element: class="fragment" --> Distro hardening: `%cmake` injects `-Wl,--as-needed` by default
+* <!-- .element: class="fragment" --> Linker pruning: Raylib dispatches OpenGL via pointers &rarr; `DT_NEEDED` dropped
+* <!-- .element: class="fragment" --> The `dlopen()` blind spot: `find-requires` only scans `DT_NEEDED`
+* <!-- .element: class="fragment" --> Silent failure: installs 1 package (904 KiB) instead of 36 (53 MiB) &rarr; crashes at runtime
+* <!-- .element: class="fragment" --> The maintainer's craft: explicit virtual capabilities bridge the runtime gap
 
-```bash
-$ podman run --rm -v "$PWD/dist/ocio-0.1.0-1.x86_64.rpm:/ocio.rpm:ro,Z" \
-    registry.opensuse.org/opensuse/tumbleweed:latest \
-    sh -c "zypper --non-interactive in --allow-unsigned-rpm /ocio.rpm && ocio --version"
+```rpm
+# In ocio.spec: bridging the dlopen() blind spot
+Requires: libOpenGL.so.0()(64bit)
+Requires: libGLX.so.0()(64bit)
 ```
-
-<p class="text-warn" style="margin-top: 30px;">* <code>--allow-unsigned-rpm</code></p>
+<!-- .element: class="fragment" -->
 
 Note:
-Run the live demo or display the command in terminal.
-What zypper does, in order (visible in its output):
-- Resolve: computes the 36 packages.
-- Retrieve: downloads them (ocio itself from the "Plain RPM files cache").
-- Verify: checks signatures. Here it cannot: our package is unsigned.
-- Check for file conflicts: no two packages may own the same path.
-- Install: unpack files into /usr, record every file in the RPM database.
-Critical detail of the asterisk: --allow-unsigned-rpm. rpm -qi ocio shows "Signature: (none)" and "Build Host: e246f0b7ceaf" (a random container ID): nothing proves who built this package. This one ships no scriptlets (rpm -qp --scripts is empty), but the next unsigned RPM could, and scriptlets run as root. Foreshadow the Signatures section.
+The difference between a raw build and an enterprise distribution build:
+- When building with plain CMake/CPack, the linker keeps libOpenGL in DT_NEEDED, and find-requires catches it.
+- Distro packaging macros (%cmake) inject distribution-wide linker flags, notably -Wl,--as-needed.
+- Because Raylib resolves its OpenGL entry points dynamically (via function pointers / runtime loading) rather than direct symbol references, GNU ld considers the dynamic link unused and strips libOpenGL.so.0 and libGLX.so.0 from DT_NEEDED.
+- Result: find-requires finds zero graphics requirements. Zypper installs only 1 package (904 KiB). The process starts, ld.so passes main(), but Raylib crashes when trying to create the window.
+- In openSUSE Factory and Fedora, maintainers must not disable --as-needed (anti-overlinking policy). The maintainer's duty is to declare the missing runtime contract explicitly in the spec preamble using virtual capabilities.
 
 --
 
@@ -468,20 +479,19 @@ Compare this directly to our initial crash:
 
 ## How 1 Became 36: libsolv
 
-* <!-- .element: class="fragment" --> **Local rule**: `.spec` only declares `Requires: libOpenGL.so.0`
-* <!-- .element: class="fragment" --> **Global puzzle**: 30,000+ packages with versions, providers, and conflicts
-* <!-- .element: class="fragment" --> **The brain**: `zypper` / `dnf` delegates to **`libsolv`**
-* <!-- .element: class="fragment" --> **Boolean SAT**: converts constraints into propositional logic &rarr; solves in milliseconds
+* <!-- .element: class="fragment" --> Local contract: capability contract &rarr; `libOpenGL.so.0()(64bit)` (auto-detected or declared)
+* <!-- .element: class="fragment" --> Repository graph: 30,000+ packages providing virtual capabilities and versions
+* <!-- .element: class="fragment" --> Resolution engine: `zypper` / `dnf` delegates to `libsolv`
+* <!-- .element: class="fragment" --> Boolean SAT: converts constraints into CNF clauses &rarr; computes transitive closure in ms
 
 Note:
-Why did our single package pull in 35 additional packages?
-- The spec file only has local vision: it declares "Requires: libOpenGL.so.0".
-- It does not know who provides it, which version to pick, or what dependencies that choice cascades into.
-- The low-level rpm binary cannot solve this: raw rpm -i would just fail with "missing dependency".
-- Frontends (Zypper in openSUSE, DNF in Fedora/RHEL) hand the entire repository catalog to libsolv.
-- libsolv translates package relationships into a Boolean SAT formula (Package A requires B -> (NOT A OR B)).
-- In milliseconds, the SAT engine calculates the unique, conflict-free package combination.
-- The board game analogy: the spec writes the rules of how pieces move; libsolv is the chess engine calculating the valid game.
+Why did installing our single RPM pull in 35 additional packages?
+- Whether auto-extracted by find-requires (CPack build) or declared by the maintainer in .spec to overcome --as-needed, the package contract requires libOpenGL.so.0()(64bit).
+- Abstract capabilities (SONAME) decouple the binary from concrete package names: any package providing libOpenGL.so.0()(64bit) (such as libglvnd) satisfies the contract.
+- The low-level rpm tool cannot resolve this: raw rpm -i fails with missing dependencies.
+- Frontends (Zypper / DNF) pass the repository catalog to libsolv, which queries its whatprovides index.
+- libsolv translates dependency and conflict rules into Boolean Conjunctive Normal Form (CNF) clauses (e.g. A requires B -> NOT A OR B).
+- In milliseconds, the CDCL SAT solver calculates a consistent package closure: on our minimal headless container, satisfying libglvnd cascades into Mesa, X11, and DRM libraries, resulting in exactly 36 packages.
 
 --
 
@@ -594,35 +604,47 @@ Two dialects, identical engineering principles:
 
 ## Delegation
 
-* **Philosophy**: Package carries payload only; dependencies delegated to the distribution.
+* <!-- .element: class="fragment" --> Binary Contract: Package carries payload only &rarr; dependencies delegated to host OS
+* <!-- .element: class="fragment" --> Transitive Closure: Solver (`libsolv` / APT) traverses repository graph to satisfy requirements
+* <!-- .element: class="fragment" --> Zero Runtime Overhead: Direct `execve()` on system `/usr` &rarr; no daemon, no wrapper
+* <!-- .element: class="fragment" --> System Ledger: Host database registers file ownership, checksums, and dependency guards
 
-<div class="grid-2 fragment" style="margin-top: 25px;">
-<div class="box-success">
+Note:
+The delegation architectural paradigm:
+- Philosophy: The developer ships only application machine code and assets; the distribution provides all shared libraries and system drivers.
+- Resolution: zypper/dnf and apt do not guess; their SAT solvers compute the transitive closure across tens of thousands of repository packages.
+- Execution: Unlike AppImage (FUSE mount) or Flatpak (bwrap sandbox), a distro package runs directly via kernel execve() without intermediary runtimes.
+- Bookkeeping: The package manager is an authoritative ledger ensuring file ownership, integrity verification (rpm -V / debsums), and preventing broken dependencies.
+
+--
+
+## Delegation: Trade-Offs
+
+<div class="grid-2" style="margin-top: 30px;">
+<div class="box-success fragment">
 
 #### Advantages
 
-* Minimal payload: **486 KB** (52.6 MiB delegated)
-* Shared libraries: patched once for all apps
-* Ownership &amp; verification: `rpm -qf`, `rpm -V`
+* Minimal payload: **486 KB** (52.6 MiB download delegated)
+* Shared libraries: patched once at OS level for all apps
+* Ownership &amp; verification: `rpm -qf`, `rpm -V` / `debsums`
 
 </div>
-<div class="box-danger">
+<div class="box-danger fragment">
 
 #### Constraints
 
-* ABI coupling: `libm.so.6(GLIBC_2.43)`
-* Strict packaging policies (FHS, scriptlets)
-* One build per target distribution
+* ABI coupling: strict host glibc baseline (e.g. `GLIBC_2.43`)
+* Distro policies: FHS compliance, root scriptlet audits
+* Matrix explosion: one build per target distro &amp; release
 
 </div>
 </div>
 
 Note:
-Recap: every bullet refers directly to what the audience has just witnessed:
-- 486 KB vs 52.6 MiB: the distribution carries the weight of the runtime dependency graph.
-- Shared libraries: libglvnd is shared across all GL apps; a security vulnerability is patched once in the OS.
-- GLIBC_2.43 in the Requires: this package installs only where glibc >= 2.43 exists. Built on Tumbleweed, it is useless on an older LTS.
-- The price of delegation is tight host coupling.
+Evaluating the trade-offs of delegation:
+- Advantages: High efficiency and shared maintenance. A 486 KB package delegates 52.6 MiB of download and ~226 MiB of disk dependencies to packages maintained by the distro. Shared libraries (e.g. libglvnd, Mesa) receive CVE fixes once for the whole system.
+- Constraints: The binary is tightly coupled to the host environment ABI, in particular glibc symbol versions. Distro packaging requires complying with strict packaging policies (FHS, no bundling, root scriptlet scrutiny) and building distinct packages for every target distribution and architecture.
 
 ---
 
@@ -668,6 +690,37 @@ Low-level mechanics of AppImage:
 - AppRun sets LD_LIBRARY_PATH and launches the application.
 - When terminated, the FUSE mount point is unmounted and removed.
 - Demonstrating --appimage-extract proves that under the hood, it is a complete, self-sufficient filesystem root.
+
+--
+
+## Inside AppImage: The `EI_PAD` Trick
+
+```text
+$ hexdump -C -n 16 ocio-x86_64.AppImage
+00000000  7f 45 4c 46 02 01 01 00  41 49 02 00 00 00 00 00  |.ELF....AI......|
+```
+
+| Byte Range | Field | Value | Purpose |
+|:---:|:---:|:---:|:---|
+| `00..03` | `EI_MAG` | `\x7fELF` | Standard ELF magic signature |
+| `04..07` | Architecture | `02 01 01 00` | 64-bit, little-endian, System V ABI |
+| **`08..0A`** | **`EI_PAD`** | **`41 49 02`** | **`AI\x02` (AppImage Type 2 magic)** |
+| `0B..0F` | `EI_PAD` | `00 00 00...` | Remaining zeroed padding |
+
+* **Zero Execution Penalty**: Linux kernel and `ld.so` ignore `EI_PAD`
+* **Instant Detection**: Desktop indexers and `file` identify AppImages in O(1) time
+* **Format Versioning**: `AI\x01` (ISO 9660) vs. `AI\x02` (SquashFS + FUSE)
+
+Note:
+Dissecting the AppImage binary header:
+- In Slide 9 we saw that every ELF binary begins with the 16-byte e_ident header.
+- The ELF specification defines bytes 8 to 15 as EI_PAD: reserved padding intended for future ABI expansion, conventionally zeroed.
+- AppImage Type 2 overwrites bytes 8, 9, and 10 with ASCII 'A', 'I', and 0x02.
+- Why this is brilliant:
+  1. The OS kernel loader only checks bytes 0 to 3 (\x7fELF) and ignores EI_PAD, so the file remains 100% executable machine code.
+  2. Desktop indexers, file managers, and app managers don't need to mount or scan the multi-megabyte SquashFS payload: reading 11 bytes gives instant identification.
+  3. Format generations are cleanly versioned: AI\x01 for legacy Type 1 vs AI\x02 for modern Type 2.
+- The emulation caveat: Native kernels ignore EI_PAD, but container emulation (QEMU-user binfmt_misc) can trip on non-standard padding with ENOEXEC ("Exec format error"). This is why native ARM64 runners are required for reliable multi-arch builds.
 
 ---
 
