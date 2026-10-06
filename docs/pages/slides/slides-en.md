@@ -344,10 +344,37 @@ ocio-0.1.0-1.x86_64.rpm: RPM v3.0 bin i386/x86_64
 <!-- .element: class="fragment" -->
 
 ```text
+$ xxd -l 96 -d dist/ocio-0.1.0-1.x86_64.rpm
+00000000: edab eedb 0300 0000 0001 6f63 696f 2d30  ..........ocio-0
+00000016: 2e31 2e30 2d31 0000 0000 0000 0000 0000  .1.0-1..........
+00000032: 0000 0000 0000 0000 0000 0000 0000 0000  ................
+00000048: 0000 0000 0000 0000 0000 0000 0000 0000  ................
+00000064: 0000 0000 0000 0000 0000 0000 0001 0005  ................
+00000080: 0000 0000 0000 0000 0000 0000 0000 0000  ................
+```
+<!-- .element: class="fragment" style="font-size: 0.48em; line-height: 1.2;" -->
+
+Note:
+file identifies the format from the magic bytes (ed ab ee db): "RPM v3.0" is the legacy lead format, still written by modern rpm for compatibility.
+xxd reveals the fixed 96-byte Lead:
+- Magic bytes ed ab ee db (offsets 0..3)
+- Version 3.0 (4..5) and binary package type (6..7)
+- Package name "ocio-0.1.0-1" in ASCII (10..22)
+- Header-style signature type (00 05 at offset 78)
+Anatomy of the file:
+- Lead: fixed legacy 96-byte block, mostly a magic number today.
+- Signature: digests of header and payload, plus the GPG signature when present (ours has none).
+- Header: all the metadata we query with rpm -q (name, version, Requires, Provides, file list with digests).
+- Payload: the files themselves, in a cpio archive compressed with zstd (rpm -qp --qf '%{PAYLOADFORMAT} %{PAYLOADCOMPRESSOR}' prints "cpio zstd").
+
+--
+
+## Inside an RPM: Extraction
+
+```text
 $ rpm2cpio ocio-0.1.0-1.x86_64.rpm | file -
 /dev/stdin: ASCII cpio archive (SVR4 with no CRC)
 ```
-<!-- .element: class="fragment" -->
 
 ```text
 $ rpm2cpio ocio-0.1.0-1.x86_64.rpm | cpio -idmv
@@ -358,17 +385,11 @@ $ rpm2cpio ocio-0.1.0-1.x86_64.rpm | cpio -idmv
 <!-- .element: class="fragment" -->
 
 Note:
-file identifies the format from the magic bytes (ed ab ee db): "RPM v3.0" is the legacy lead format, still written by modern rpm for compatibility.
-Anatomy of the file:
-- Lead: fixed legacy block, mostly a magic number today.
-- Signature: digests of header and payload, plus the GPG signature when present (ours has none).
-- Header: all the metadata we query with rpm -q (name, version, Requires, Provides, file list with digests).
-- Payload: the files themselves, in a cpio archive compressed with zstd (rpm -qp --qf '%{PAYLOADFORMAT} %{PAYLOADCOMPRESSOR}' prints "cpio zstd").
 What is cpio:
 - Unix archive format from the 1970s ("copy in / copy out"), same idea as tar: a flat sequence of (header + file data) records.
 - No compression and no index of its own; compression is applied on top (zstd here).
 - SVR4 "newc" variant: ASCII headers, magic "070701". The Linux kernel uses the same format for the initramfs.
-How to extract it (fragment):
+How to extract it:
 - rpm2cpio strips lead, signature and header, decompresses the payload and writes the plain cpio stream to stdout.
 - cpio -i extract, -d create directories, -m keep modification times, -v list files.
 - Paths are relative (./usr/...): everything lands in the current directory, the system is not touched.
@@ -425,13 +446,98 @@ Header inspection:
 
 --
 
+## Cooking an RPM
+
+* **Tool**: `rpmbuild` (from `rpm-build`)
+* **Recipe**: The `.spec` file (`ocio.spec`)
+* **Tree**: `SOURCES/`, `SPECS/`, `BUILD/`, `BUILDROOT/`, `RPMS/`, `SRPMS/`
+* **Workflow**: `rpmbuild -ba ocio.spec`
+
+Note:
+How native RPMs are built:
+- To build a native RPM, you need the source archive in SOURCES/ and the recipe in SPECS/.
+- Running `rpmbuild -ba ocio.spec` reads the spec from SPECS/ and the tarball from SOURCES/.
+- Executes prep, build, install into a staging root (BUILDROOT), and produces both the binary package (.rpm) and the source package (.src.rpm).
+- The package manager does not build software; rpmbuild is the dedicated toolchain.
+
+--
+
+## Inside the .spec: Sections
+
+* **Preamble**: `Name`, `Version`, `Release`, `License`, `Source0`
+* **`%prep`**: Unpack sources and apply patches (`%autosetup`)
+* **`%build`**: Compile the application (`%cmake`, `%cmake_build`)
+* **`%install`**: Stage files into `BUILDROOT` (`%cmake_install`)
+* **`%files`**: Manifest of files packaged into the CPIO payload
+
+Note:
+The structure of a spec file:
+- Preamble: Package metadata, license, upstream URL, and source archives.
+- %prep: Prepares the build directory, typically unpacking tarballs via %autosetup.
+- %build: Invokes the buildsystem using distro macros (%cmake and %cmake_build).
+- %install: Installs build artifacts into a clean temporary root (BUILDROOT) mirroring the system filesystem.
+- %files: Explicit manifest of files from BUILDROOT to be bundled into the RPM payload. Any unpackaged file causes a build failure.
+
+--
+
+## Spec: Dependencies
+
+* **`BuildRequires`**: Explicit tool &amp; header declarations
+* **Clean chroot**: Missing dependency &rarr; build aborts
+* **Hermetic graph**: Network disabled (OBS / Koji)
+
+Note:
+Build-time dependency management:
+- The packager declares BuildRequires explicitly for all compilers, tools, and headers (e.g. gcc, cmake >= 3.16, pkgconfig, raylib-devel, Mesa-libGL-devel).
+- In clean build roots (OBS, Koji, or mock), network access is disabled. If a dependency is not in BuildRequires, the build aborts immediately.
+- This creates a strictly auditable, reproducible dependency graph for compilation.
+
+--
+
+## Spec: Runtime Dependencies
+
+* **`find-requires`**: Automated scan of `BUILDROOT` binaries
+* **`DT_NEEDED`**: Dynamic link &rarr; detected automatically
+* **`dlopen()`**: Runtime loading &rarr; invisible to scanner
+* **Generated contract**: Translates symbols &amp; `DT_NEEDED` &rarr; `Requires:`
+
+Note:
+Runtime dependency management:
+- Nobody writes Requires: libc.so.6 manually in the spec file.
+- After %install, rpmbuild executes the internal find-requires script over all ELF binaries in BUILDROOT.
+- The dynamic duality:
+  1. Standard linked libraries are listed in DT_NEEDED: find-requires reads them automatically and emits package requirements alongside glibc symbol baselines.
+  2. Libraries loaded at runtime via dlopen() and function pointers: invisible to find-requires because they do not appear in the ELF dynamic section.
+
+--
+
+## CPack
+
+* CMake built-in packaging: no handwritten `.spec` required
+* Minimal configuration in `CMakeLists.txt`:
+
+```cmake
+set(CPACK_GENERATOR "TGZ;DEB;RPM")
+set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+include(CPack)
+```
+
+* Command: `cpack -G RPM`
+
+Note:
+The CPack workflow:
+- For a developer using CMake, CPack creates RPMs without writing a .spec file by hand.
+- Adding a few lines to CMakeLists.txt and running `cpack -G RPM` generates a package.
+- Generates spec internally and invokes rpmbuild.
+- Standard CMake build retains DT_NEEDED -> find-requires detects libOpenGL.so.0 -> installs & runs out of the box ("it just works!").
+
+--
+
 ## The --as-needed Trap
 
 * <!-- .element: class="fragment" --> Distro hardening: `%cmake` injects `-Wl,--as-needed` by default
-* <!-- .element: class="fragment" --> Linker pruning: Raylib dispatches OpenGL via pointers &rarr; `DT_NEEDED` dropped
-* <!-- .element: class="fragment" --> The `dlopen()` blind spot: `find-requires` only scans `DT_NEEDED`
+* <!-- .element: class="fragment" --> Linker pruning &amp; `dlopen()` blind spot: Raylib dispatches OpenGL via pointers &rarr; `DT_NEEDED` dropped, `find-requires` misses it
 * <!-- .element: class="fragment" --> Silent failure: installs 1 package (904 KiB) instead of 36 (53 MiB) &rarr; crashes at runtime
-* <!-- .element: class="fragment" --> The maintainer's craft: explicit virtual capabilities bridge the runtime gap
 
 ```rpm
 # In ocio.spec: bridging the dlopen() blind spot
@@ -441,12 +547,13 @@ Requires: libGLX.so.0()(64bit)
 <!-- .element: class="fragment" -->
 
 Note:
-The difference between a raw build and an enterprise distribution build:
-- When building with plain CMake/CPack, the linker keeps libOpenGL in DT_NEEDED, and find-requires catches it.
-- Distro packaging macros (%cmake) inject distribution-wide linker flags, notably -Wl,--as-needed.
-- Because Raylib resolves its OpenGL entry points dynamically (via function pointers / runtime loading) rather than direct symbol references, GNU ld considers the dynamic link unused and strips libOpenGL.so.0 and libGLX.so.0 from DT_NEEDED.
-- Result: find-requires finds zero graphics requirements. Zypper installs only 1 package (904 KiB). The process starts, ld.so passes main(), but Raylib crashes when trying to create the window.
-- In openSUSE Factory and Fedora, maintainers must not disable --as-needed (anti-overlinking policy). The maintainer's duty is to declare the missing runtime contract explicitly in the spec preamble using virtual capabilities.
+The trap for the spec author:
+- With CPack, everything "just worked".
+- But when an author writes a native ocio.spec using standard distro macros like %cmake, the distro toolchain injects hardening flags, notably -Wl,--as-needed.
+- Because Raylib resolves OpenGL calls dynamically via function pointers and dlopen(), GNU ld with --as-needed considers the dynamic link unused and strips libOpenGL.so.0 and libGLX.so.0 from DT_NEEDED.
+- find-requires scans only DT_NEEDED: it detects no graphics dependencies and emits only libc and libm.
+- The resulting RPM builds cleanly, but Zypper installs only 1 package (904 KiB) instead of 36 (53 MiB). The program starts, but crashes when initializing the window!
+- The solution: the author must manually bridge the dlopen() blind spot by declaring virtual capabilities in ocio.spec with Requires:.
 
 --
 
@@ -576,6 +683,43 @@ Anatomy of a .deb file:
   2. control.tar: compressed archive with package metadata (control file, md5sums, postinst/prerm scriptlets).
   3. data.tar: compressed archive with the actual payload files unpacked onto the filesystem.
 - dpkg-deb -I: inspects control metadata. Depends: libc6, libgl1, libx11-6 is populated automatically by dpkg-shlibdeps.
+
+--
+
+## Cooking a DEB
+
+* **Tool**: `dpkg-buildpackage` (from `dpkg-dev`) / `debuild`
+* **Recipe**: The `debian/` directory inside the source tree
+* **Tree**: Source root containing `debian/` metadata and rules
+* **Workflow**: `dpkg-buildpackage -us -uc -b`
+  * Drives build via `debian/rules` and Debhelper (`dh`)
+  * Produces binary package (`.deb`) and changes file (`.changes`)
+
+Note:
+How native DEBs are built:
+- In Debian, the recipe is not a single file like in RPM, but a dedicated debian/ directory inside the source tree.
+- The primary build driver is dpkg-buildpackage (or the developer wrapper debuild).
+- Running dpkg-buildpackage -us -uc -b builds the binary package without signing source or changes files.
+- The build process is orchestrated by debian/rules, which delegates to the Debhelper sequencer (dh).
+- Artifacts produced: the binary package (.deb), the build log, and the .changes file declaring package upload metadata.
+
+--
+
+## Inside debian/
+
+* **`control`**: Package metadata, `Build-Depends`, and `Depends: ${shlibs:Depends}`
+* **`rules`**: Executable Makefile driving the build lifecycle (`dh $@`)
+* **`changelog`**: Canonical package version, release history & target distro
+* **`copyright`**: Machine-readable licensing manifest (DEP-5 standard)
+* **Debhelper (`dh`)**: Sequencer automating configure, build, staging & strip
+
+Note:
+The structure of a Debian recipe:
+- debian/control: Declares package metadata, build-time dependencies (Build-Depends), and runtime dependencies using substitution variables like ${shlibs:Depends}.
+- debian/rules: An executable Makefile. Modern packaging uses dh $@ to automate build steps (dh_auto_configure, dh_auto_build, dh_auto_install).
+- debian/changelog: Authoritative for package version and release. In Debian, you do not set Version in control; dpkg-parsechangelog extracts it from the top entry.
+- debian/copyright: Standardized DEP-5 manifest auditing licenses per file for DFSG compliance.
+- Runtime resolution: dh_shlibdeps scans compiled ELF binaries, consults library .symbols files, and automatically populates ${shlibs:Depends}.
 
 --
 
