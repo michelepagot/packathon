@@ -814,6 +814,27 @@ class SlideDeckLinter:
                     )
                     continue
 
+                # 5. Followed on the same line by Markdown bold/italic formatting
+                bold_after = re.search(
+                    r"(<!--\s*\.element:[^>]*-->).*?(\*\*[^*]+\*\*|__[^\_]+__)",
+                    line,
+                )
+                if bold_after:
+                    self.issues.append(
+                        Issue(
+                            slide_index=slide.index,
+                            category="style",
+                            severity="ERROR",
+                            line_number=line_no,
+                            message=(
+                                f"Reveal.js Markdown formatting defect in {deck_name} deck (line {line_no}): "
+                                f"'{bold_after.group(1)}' is followed by Markdown bold formatting {bold_after.group(2)}. "
+                                f"Markdown bold syntax does not parse correctly when preceded by Reveal.js directives in list items; "
+                                f"use plain text instead."
+                            ),
+                        )
+                    )
+                    continue
     def check_tables(self, s_en: SlideData, s_it: SlideData) -> None:
         """Verify markdown tables presence and dimensions."""
         t_en = s_en.table_dimensions
