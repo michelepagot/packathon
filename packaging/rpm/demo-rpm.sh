@@ -348,13 +348,12 @@ echo "capabilities and requirements from the compiled ELF binary during packagin
 
 if [ -n "${RPM_CANDIDATE}" ]; then
     if [ "${HAVE_RPM}" = true ] || [ "${DRY_RUN}" = true ]; then
-        demo_cmd "rpm -qp --requires \"${RPM_CANDIDATE}\" | grep -E 'libOpenGL|libGLX|libm|libc'" "Querying auto-detected requirements directly from RPM file:"
+        demo_cmd "rpm -qip \"${RPM_CANDIDATE}\"" "Inspecting RPM Package Metadata (rpm -qip):"
+        demo_cmd "rpm -qp --requires \"${RPM_CANDIDATE}\" | grep --color=always -e \"^\" -e \"libOpenGL\" -e \"libGLX\" -e \"libm\" -e \"libc\"" "Inspecting Package Requirements & Auto-detected Capabilities (rpm -qp --requires):"
         echo ""
         echo -e "  ${DIM}Key Takeaway: The ELF binary only knows SONAMEs. rpmbuild translated those${RESET}"
         echo -e "  ${DIM}SONAMEs into qualified RPM capabilities that the package solver can resolve${RESET}"
         echo -e "  ${DIM}against repository indexes.${RESET}"
-        demo_cmd "rpm -qip \"${RPM_CANDIDATE}\"" "Inspecting RPM Package Metadata (rpm -qip):"
-        demo_cmd "rpm -qp --requires \"${RPM_CANDIDATE}\"" "Inspecting Full Requirements List (including rpmlib and versioned glibc baselines):"
         demo_cmd "rpm -qpl \"${RPM_CANDIDATE}\"" "Inspecting RPM Payload Files (rpm -qpl):"
     else
         skip "'rpm' command is not available. Skipping RPM package inspection."

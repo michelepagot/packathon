@@ -2,7 +2,8 @@
 # Packathon - openSUSE Tumbleweed Containers (Vanilla Demo & Builder)
 # =============================================================================
 # Targets:
-#   - vanilla-demo: Pristine openSUSE runtime environment + demo ergonomics (fzf, prompt, history).
+#   - vanilla-demo: a openSUSE TW with nothing installed out of few demo ergonomics
+#                   (fzf, prompt, history).
 #                   Contains NO compilers and NO ocio runtime dependencies.
 #   - builder:      Full build-time environment (inherits vanilla-demo and adds dev tools).
 #
@@ -47,12 +48,13 @@ LABEL org.opencontainers.image.title="Packathon openSUSE Vanilla Demo" \
 RUN sed -i -e 's|http://download.opensuse.org|https://cdn.opensuse.org|g' \
            -e 's|https://download.opensuse.org|https://cdn.opensuse.org|g' /etc/zypp/repos.d/*.repo && \
     zypper --non-interactive refresh && \
-    zypper --non-interactive in --no-recommends fzf && \
+    # awk seems an hidden dependency on fzf
+    zypper --non-interactive in --no-recommends fzf awk && \
     zypper clean -a && \
     rm -rf /var/cache/zypp/*
 
 # Cyan prompt to distinguish Vanilla from Green Builder
-RUN echo "export PS1='\[\e[36m\][OPENSUSE VANILLA]\w\[\e[0m\]# '" >> /root/.bashrc && \
+RUN echo "export PS1='\[\e[32m\][OPENSUSE VANILLA]\w\[\e[0m\]# '" >> /root/.bashrc && \
     echo '[ -f /usr/share/fzf/shell/key-bindings.bash ] && source /usr/share/fzf/shell/key-bindings.bash' >> /root/.bashrc
 
 COPY cmd_history.opensuse /root/.bash_history
@@ -116,6 +118,17 @@ RUN ARCH=$(uname -m) && \
     mv squashfs-root /usr/lib/appimagetool && \
     ln -s /usr/lib/appimagetool/AppRun /usr/local/bin/appimagetool && \
     rm -f /tmp/appimagetool
+
+# Install linuxdeploy (pre-extracted like appimagetool: no FUSE needed).
+# build-appimage.sh --method linuxdeploy uses it to bundle the libraries
+# that are not on the AppImage excludelist.
+RUN ARCH=$(uname -m) && \
+    curl -sLo /tmp/linuxdeploy "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${ARCH}.AppImage" && \
+    chmod +x /tmp/linuxdeploy && \
+    cd /tmp && ./linuxdeploy --appimage-extract && \
+    mv squashfs-root /usr/lib/linuxdeploy && \
+    ln -s /usr/lib/linuxdeploy/AppRun /usr/local/bin/linuxdeploy && \
+    rm -f /tmp/linuxdeploy
 
 # appimagetool otherwise downloads the type2 runtime itself at every build,
 # and can hang there: fetch it once and pass it explicitly.
