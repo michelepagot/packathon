@@ -23,7 +23,7 @@ Version:        0.1.0
 Release:        1%{?dist}
 Summary:        Raylib interactive eye-tracking educational demo
 License:        MIT
-URL:            https://github.com/example/ocio
+URL:            https://github.com/michelepagot/packathon
 Source0:        %{name}-%{version}.tar.gz
 %if %{with vendored_raylib}
 Source1:        raylib-%{raylib_version}.tar.gz
@@ -41,6 +41,16 @@ BuildRequires:  alsa-devel
 %else
 BuildRequires:  raylib-devel = %{raylib_version}
 %endif
+
+# Runtime Dependencies:
+# When built with distro macros (%%cmake), openSUSE injects -Wl,--as-needed.
+# Because Raylib dispatches OpenGL functions dynamically via function pointers / dlopen(),
+# the linker prunes libOpenGL.so.0 and libGLX.so.0 from ELF DT_NEEDED headers.
+# Consequently, rpmbuild's find-requires cannot detect them automatically.
+# In openSUSE Factory / Fedora packaging guidelines, maintainers do not disable
+# --as-needed; instead, they declare these runtime capabilities explicitly:
+# Requires:       libOpenGL.so.0()(64bit)
+# Requires:       libGLX.so.0()(64bit)
 
 %description
 Ocio is an interactive educational demonstration that tracks the mouse pointer

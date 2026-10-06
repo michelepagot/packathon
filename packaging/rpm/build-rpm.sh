@@ -58,13 +58,3 @@ cp -f "${RPM_TOPDIR}/SRPMS"/*.src.rpm "${REPO_ROOT}/dist/"
 
 echo "==> Generated RPM packages in dist/:"
 ls -lh "${REPO_ROOT}/dist/"*.rpm
-
-RPM_FILE=$(ls "${REPO_ROOT}/dist/${NAME}-${VERSION}"*.x86_64.rpm | head -n1)
-echo "==> Package information (rpm -qip):"
-rpm -qip "${RPM_FILE}"
-
-echo "==> Auto-detected RPM dependencies (rpm -qp --requires):"
-rpm -qp --requires "${RPM_FILE}"
-
-echo "==> RPM payload files (rpm -qpl):"
-rpm -qpl "${RPM_FILE}"
