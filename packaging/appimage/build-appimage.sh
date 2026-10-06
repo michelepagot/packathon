@@ -17,7 +17,8 @@ cmake --build "${BUILD_DIR}" --config Release -j"$(nproc)"
 
 echo "=== Assembling AppDir ==="
 rm -rf "${APPDIR}"
-DESTDIR="${APPDIR}" cmake --install "${BUILD_DIR}"
+# Only the ocio component: the default install also contains raylib's dev files
+DESTDIR="${APPDIR}" cmake --install "${BUILD_DIR}" --component ocio
 cp "${ROOT_DIR}/packaging/ocio.desktop" "${APPDIR}/"
 cp "${ROOT_DIR}/packaging/icons/ocio.png" "${APPDIR}/"
 ln -sf usr/local/bin/ocio "${APPDIR}/AppRun"

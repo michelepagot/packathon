@@ -4,6 +4,9 @@ project(Packathon VERSION 0.1.0 LANGUAGES C)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# GNUInstallDirs would default to share/doc/Packathon (the project name);
+# distro macros such as openSUSE's %cmake still override it
+set(CMAKE_INSTALL_DOCDIR "share/doc/ocio" CACHE PATH "Documentation root (DATAROOTDIR/doc/ocio)")
 include(GNUInstallDirs)
 
 # -----------------------------------------------------------------------------
@@ -26,6 +29,10 @@ endif()
 
 # Raylib dependency acquisition
 set(RAYLIB_VERSION 5.5)
+
+# raylib's own install() rules (headers, libraylib.a, raylib.pc, CMake config)
+# go to the raylib-devel component; CPack only packages the ocio component
+set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME raylib-devel)
 
 if(RAYLIB_MODE STREQUAL "SYSTEM")
     message(STATUS "Searching for system-installed raylib ${RAYLIB_VERSION} (RAYLIB_MODE=SYSTEM)...")
@@ -55,6 +62,7 @@ elseif(RAYLIB_MODE STREQUAL "FETCH")
 else()
     message(FATAL_ERROR "Unknown RAYLIB_MODE='${RAYLIB_MODE}'. Valid choices are: FETCH, SYSTEM, LOCAL.")
 endif()
+set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME ocio)
 
 # Application target: ocio
 add_executable(ocio
@@ -86,6 +94,13 @@ install(TARGETS ocio
     BUNDLE DESTINATION .
 )
 
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/ocio"
+)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}"
+)
+
 # Install Linux Desktop Integration files
 if(UNIX AND NOT APPLE)
     install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/packaging/ocio.desktop"
@@ -114,6 +129,8 @@ if(ENABLE_CPACK)
     set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
     set(CPACK_PACKAGE_CONTACT "Packathon Maintainers <maintainers@packathon.org>")
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+    # Package only the ocio component (build dir; project; component; subdir)
+    set(CPACK_INSTALL_CMAKE_PROJECTS "${CMAKE_BINARY_DIR};${PROJECT_NAME};ocio;/")
 
     # Generator selection based on platform
     if(WIN32)
@@ -147,6 +164,39 @@ if(ENABLE_CPACK)
     set(CPACK_RPM_PACKAGE_GROUP "Amusements/Graphics")
     set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
     set(CPACK_RPM_FILE_NAME "${CPACK_PACKAGE_NAME}-${PROJECT_VERSION}-1.${CMAKE_SYSTEM_PROCESSOR}.rpm")
+
+    # Shared XDG directories belong to filesystem / hicolor-icon-theme
+    set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
+        /usr/share/applications
+        /usr/share/icons
+        /usr/share/icons/hicolor
+        /usr/share/icons/hicolor/256x256
+        /usr/share/icons/hicolor/256x256/apps
+        /usr/share/icons/hicolor/scalable
+        /usr/share/icons/hicolor/scalable/apps
+        /usr/share/licenses
+        /usr/share/metainfo
+    )
+    # X11 is dlopen()ed by GLFW, so rpmbuild cannot see it in DT_NEEDED
+    set(CPACK_RPM_PACKAGE_REQUIRES "libX11.so.6()(64bit)")
+
+    # Debug symbols: RPM and DEB split them into ocio-debuginfo / ocio-dbgsym
+    # (needs -g, so a RelWithDebInfo or Debug build); archives are stripped.
+    if(CMAKE_BUILD_TYPE MATCHES "^(RelWithDebInfo|Debug)$")
+        set(CPACK_RPM_DEBUGINFO_PACKAGE ON)
+        set(CPACK_DEBIAN_DEBUGINFO_PACKAGE ON)
+        # debugedit rewrites paths in place: source and build dir paths must be
+        # at least as long as "<prefix>/src_N" (25 characters with this prefix)
+        set(CPACK_RPM_BUILD_SOURCE_DIRS_PREFIX "/usr/src/debug/ocio")
+    endif()
+    set(CPACK_PROJECT_CONFIG_FILE "${CMAKE_CURRENT_BINARY_DIR}/CPackProjectConfig.cmake")
+    file(WRITE "${CPACK_PROJECT_CONFIG_FILE}" [=[
+# Read by cpack once per generator: strip unless the generator splits debuginfo
+if(NOT (CPACK_GENERATOR STREQUAL "RPM" AND CPACK_RPM_DEBUGINFO_PACKAGE)
+   AND NOT (CPACK_GENERATOR STREQUAL "DEB" AND CPACK_DEBIAN_DEBUGINFO_PACKAGE))
+    set(CPACK_STRIP_FILES ON)
+endif()
+]=])
 
     # Archive (.tar.gz / .zip) naming
     set(CPACK_ARCHIVE_FILE_NAME "${CPACK_PACKAGE_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
