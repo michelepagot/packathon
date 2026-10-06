@@ -1,18 +1,20 @@
 # =============================================================================
-# Packathon - openSUSE Tumbleweed Builder Container
+# Packathon - openSUSE Tumbleweed Containers (Vanilla Demo & Builder)
 # =============================================================================
-# Tools only: compilers, dev headers, rpm-build, flatpak-builder, appimagetool.
-# The image contains no project source and no ocio binary: mount the checkout
-# at /src and name the script to run. With no command it opens a shell.
-#
-# ocio runs in vanilla upstream images instead, see the walkthrough in
-# docs/container-packaging.md.
+# Targets:
+#   - vanilla-demo: Pristine openSUSE runtime environment + demo ergonomics (fzf, prompt, history).
+#                   Contains NO compilers and NO ocio runtime dependencies.
+#   - builder:      Full build-time environment (inherits vanilla-demo and adds dev tools).
 #
 # Usage:
-#   1. Build the image (nothing is copied in, so the context is this directory):
+#   1. Build the vanilla demo image:
+#      podman build --target vanilla-demo -t localhost/packathon-opensuse:demo -f packaging/containers/Containerfile.opensuse packaging/containers
+#      podman run --rm -it -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix:ro --device /dev/dri -v "$PWD:/src:Z" localhost/packathon-opensuse:demo
+#
+#   2. Build the builder image (default):
 #      podman build -t localhost/packathon-opensuse:builder -f packaging/containers/Containerfile.opensuse packaging/containers
 #
-#   2. Build packages with CPack (default: RAYLIB_MODE=FETCH, static raylib):
+#   3. Build packages with CPack (default: RAYLIB_MODE=FETCH, static raylib):
 #      podman run --rm -v "$PWD:/src:Z" localhost/packathon-opensuse:builder packaging/containers/build-package.sh
 #      # Generated .rpm and .tar.gz packages are placed in ./dist/
 #
@@ -23,21 +25,21 @@
 #      # Build using pre-staged local source (offline/hermetic, no network):
 #      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-opensuse:builder packaging/containers/build-package.sh
 #
-#   3. Other recipes (hand-written spec, AppImage):
+#   4. Other recipes (hand-written spec, AppImage):
 #      podman run --rm -v "$PWD:/src:Z" localhost/packathon-opensuse:builder packaging/rpm/build-rpm.sh
 #      podman run --rm -v "$PWD:/src:Z" -e BUILD_DIR=/tmp/build -e OUTPUT_DIR=/src/dist \
 #        localhost/packathon-opensuse:builder packaging/appimage/build-appimage.sh
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Builder (build-time tools only)
+# Stage 1: Vanilla Demo Environment (clean runtime + presentation ergonomics)
 # -----------------------------------------------------------------------------
-FROM registry.opensuse.org/opensuse/tumbleweed:latest AS builder
+FROM registry.opensuse.org/opensuse/tumbleweed:latest AS vanilla-demo
 
-LABEL org.opencontainers.image.title="Packathon openSUSE Builder" \
-      org.opencontainers.image.description="Build-time environment for compiling ocio and packaging RPMs"
+LABEL org.opencontainers.image.title="Packathon openSUSE Vanilla Demo" \
+      org.opencontainers.image.description="Pristine openSUSE Tumbleweed runtime environment with demo ergonomics (fzf, prompt, history)"
 
-# Install build tools and development headers
+# Install fzf (only pulls glibc, no graphics/sound libraries)
 # Temporary workaround: download.opensuse.org (MirrorBrain) can redirect CI runners to regional
 # mirrors that are in the middle of synchronization, causing package digest verification failures
 # (e.g. exit code 8 on noarch packages like file-magic). Rewriting repo URLs to https://cdn.opensuse.org
@@ -45,7 +47,31 @@ LABEL org.opencontainers.image.title="Packathon openSUSE Builder" \
 RUN sed -i -e 's|http://download.opensuse.org|https://cdn.opensuse.org|g' \
            -e 's|https://download.opensuse.org|https://cdn.opensuse.org|g' /etc/zypp/repos.d/*.repo && \
     zypper --non-interactive refresh && \
-    zypper --non-interactive in --no-recommends \
+    zypper --non-interactive in --no-recommends fzf && \
+    zypper clean -a && \
+    rm -rf /var/cache/zypp/*
+
+# Cyan prompt to distinguish Vanilla from Green Builder
+RUN echo "export PS1='\[\e[36m\][OPENSUSE VANILLA]\w\[\e[0m\]# '" >> /root/.bashrc && \
+    echo '[ -f /usr/share/fzf/shell/key-bindings.bash ] && source /usr/share/fzf/shell/key-bindings.bash' >> /root/.bashrc
+
+COPY cmd_history.opensuse /root/.bash_history
+
+WORKDIR /src
+CMD ["/bin/bash"]
+
+# -----------------------------------------------------------------------------
+# Stage 2: Builder (build-time tools only)
+# -----------------------------------------------------------------------------
+FROM vanilla-demo AS builder
+
+LABEL org.opencontainers.image.title="Packathon openSUSE Builder" \
+      org.opencontainers.image.description="Build-time environment for compiling ocio and packaging RPMs"
+
+# Green prompt to distinguish Builder from Vanilla
+RUN echo "export PS1='\[\e[32m\][OPENSUSE BUILDER]\w\[\e[0m\]# '" >> /root/.bashrc
+
+RUN zypper --non-interactive in --no-recommends \
         # [Build-Time Tools]
         gcc \
         gcc-c++ \
@@ -78,8 +104,6 @@ RUN sed -i -e 's|http://download.opensuse.org|https://cdn.opensuse.org|g' \
         # elfutils provides eu-strip and eu-elfcompress, required by flatpak-builder
         # to strip debug symbols from built binaries during packaging
         elfutils \
-        # Demo tools
-        fzf \
     && zypper clean -a \
     && rm -rf /var/cache/zypp/*
 
@@ -109,11 +133,6 @@ RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flath
     ARCH=$(uname -m) && \
     ln -sf /usr/libexec/appstreamcli-compose \
         "/var/lib/flatpak/runtime/org.freedesktop.Sdk/${ARCH}/25.08/active/files/bin/appstream-compose"
-
-RUN echo "export PS1='\[\e[32m\][OPENSUSE BUILDER]\w\[\e[0m\]# '" >> /root/.bashrc && \
-    echo '[ -f /usr/share/fzf/shell/key-bindings.bash ] && source /usr/share/fzf/shell/key-bindings.bash' >> /root/.bashrc
-
-COPY cmd_history /root/.bash_history
 
 WORKDIR /src
 

@@ -1,0 +1,26 @@
+name: Slides
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/pages/slides/**'
+      - '.github/workflows/slides.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/pages/slides/**'
+      - '.github/workflows/slides.yml'
+  workflow_dispatch:
+
+jobs:
+  lint-slides:
+    name: Slide Deck Coherence Linter
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Slide Coherence Linter
+        run: |
+          python3 docs/pages/slides/lint-slides.py docs/pages/slides/slides-en.md docs/pages/slides/slides-it.md

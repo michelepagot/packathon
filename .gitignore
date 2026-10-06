@@ -6,6 +6,8 @@ dist/
 bin/
 cmake-build-*/
 .cache/
+__pycache__/
+.playwright-mcp/
 
 # IDE files
 .vscode/

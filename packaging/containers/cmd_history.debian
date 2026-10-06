@@ -1,10 +1,9 @@
 # === Build Recipes ===
 packaging/containers/build-package.sh
-packaging/rpm/build-rpm.sh
 packaging/deb/build-deb.sh
 packaging/appimage/build-appimage.sh
 packaging/flatpak/build-flatpak.sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)
+cmake -S . -B build-debian -DCMAKE_BUILD_TYPE=Release && cmake --build build-debian -j$(nproc)
 
 # === Foundations: Binary & Linker Inspection ===
 ./dist/ocio --version
@@ -13,19 +12,13 @@ readelf -d dist/ocio | grep NEEDED
 ldd dist/ocio
 strings dist/ocio | grep -E "^GLIBC_2\." | sort -V | tail -n 5
 
-# === Route 1: RPM Dissection & Delegation ===
-file dist/ocio-0.1.0-1.x86_64.rpm
-rpm2cpio dist/ocio-0.1.0-1.x86_64.rpm | file -
-rpm2cpio dist/ocio-0.1.0-1.x86_64.rpm | cpio -tv
-rpm -qlp dist/ocio-0.1.0-1.x86_64.rpm
-rpm -qp --requires dist/ocio-0.1.0-1.x86_64.rpm
-rpm -qp --provides dist/ocio-0.1.0-1.x86_64.rpm
-zypper --non-interactive in --allow-unsigned-rpm dist/ocio-0.1.0-1.x86_64.rpm
-rpm -qf /usr/lib64/libOpenGL.so.0
-rpm -V ocio && echo clean
-rpm -e --test libglvnd
+# === Vanilla Walkthrough: Step-by-Step Dependency Resolution ===
+ocio
+apt-get update
+apt-get install -y --no-install-recommends libx11-6
+apt-get install -y --no-install-recommends libglx0
 
-# === Route 1: DEB Dissection & Symbols ===
+# === Route 1: DEB Dissection & Verification ===
 file dist/ocio_0.1.0_amd64.deb
 ar -t dist/ocio_0.1.0_amd64.deb
 dpkg-deb -I dist/ocio_0.1.0_amd64.deb
