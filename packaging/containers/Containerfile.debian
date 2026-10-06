@@ -66,7 +66,7 @@ LABEL org.opencontainers.image.title="Packathon Debian Builder" \
       org.opencontainers.image.description="Build-time environment for compiling ocio and packaging DEBs"
 
 # Red prompt to distinguish Builder from Vanilla
-RUN echo "export PS1='\[\e[31m\][DEBIAN BUILDER]\w\[\e[0m\]# '" >> /root/.bashrc
+RUN echo "export PS1='\[\e[34m\][DEBIAN BUILDER]\w\[\e[0m\]# '" >> /root/.bashrc
 
 # Enable Bookworm Backports to get a modern version of flatpak-builder
 RUN echo "deb http://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
@@ -117,6 +117,17 @@ RUN ARCH=$(uname -m) && \
     mv squashfs-root /usr/lib/appimagetool && \
     ln -s /usr/lib/appimagetool/AppRun /usr/local/bin/appimagetool && \
     rm -f /tmp/appimagetool
+
+# Install linuxdeploy (pre-extracted like appimagetool: no FUSE needed).
+# build-appimage.sh --method linuxdeploy uses it to bundle the libraries
+# that are not on the AppImage excludelist.
+RUN ARCH=$(uname -m) && \
+    curl -sLo /tmp/linuxdeploy "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${ARCH}.AppImage" && \
+    chmod +x /tmp/linuxdeploy && \
+    cd /tmp && ./linuxdeploy --appimage-extract && \
+    mv squashfs-root /usr/lib/linuxdeploy && \
+    ln -s /usr/lib/linuxdeploy/AppRun /usr/local/bin/linuxdeploy && \
+    rm -f /tmp/linuxdeploy
 
 # appimagetool otherwise downloads the type2 runtime itself at every build,
 # and can hang there: fetch it once and pass it explicitly.

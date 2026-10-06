@@ -1,32 +1,51 @@
 # === Build Recipes ===
-packaging/containers/build-package.sh
+packaging/build_ocio.sh
 packaging/rpm/build-rpm.sh
 packaging/appimage/build-appimage.sh
 packaging/flatpak/build-flatpak.sh
 cmake -S . -B build-opensuse -DCMAKE_BUILD_TYPE=Release && cmake --build build-opensuse -j$(nproc)
 
 # === Foundations: Binary & Linker Inspection ===
-./dist/ocio --version
-readelf -p .interp dist/ocio
-readelf -d dist/ocio | grep NEEDED
-ldd dist/ocio
-strings dist/ocio | grep -E "^GLIBC_2\." | sort -V | tail -n 5
+./dist/cmake/ocio --version
+readelf -p .interp dist/cmake/ocio
+readelf -d dist/cmake/ocio | grep NEEDED
+readelf -h dist/cmake/ocio | grep -E 'Type:|Entry point'
+readelf -l dist/cmake/ocio | grep -A1 INTERP
+readelf -s dist/cmake/ocio | grep -E ' (main|_start)$'
+ldd dist/cmake/ocio
+strings dist/cmake/ocio | grep -E "^GLIBC_2\." | sort -V | tail -n 5
 
 # === Vanilla Walkthrough: Step-by-Step Dependency Resolution ===
-ocio
 zypper in libglvnd
 
 # === Route 1: RPM Dissection & Verification ===
+zypper in -y binutils rpm
 file dist/ocio-0.1.0-1.x86_64.rpm
 rpm2cpio dist/ocio-0.1.0-1.x86_64.rpm | file -
 rpm2cpio dist/ocio-0.1.0-1.x86_64.rpm | cpio -tv
+rpm -qip dist/ocio-0.1.0-1.x86_64.rpm
 rpm -qlp dist/ocio-0.1.0-1.x86_64.rpm
+rpm -qpl dist/ocio-0.1.0-1.x86_64.rpm
 rpm -qp --requires dist/ocio-0.1.0-1.x86_64.rpm
+rpm -qp --requires dist/ocio-0.1.0-1.x86_64.rpm | grep --color=always -e "^" -e "libOpenGL" -e "libGLX" -e "libm" -e "libc"
 rpm -qp --provides dist/ocio-0.1.0-1.x86_64.rpm
+rpm -q --whatprovides "libOpenGL.so.0()(64bit)"
+rpm -q --provides libglvnd | grep -E 'libOpenGL|libGLX'
+zypper search --provides --match-exact "libOpenGL.so.0()(64bit)"
+rpm -q --requires libglvnd | grep -E 'Mesa|libX11|libglvnd|libdrm'
+zypper --non-interactive in --dry-run --allow-unsigned-rpm dist/ocio-0.1.0-1.x86_64.rpm
+zypper --no-refresh in --allow-unsigned-rpm dist/ocio-0.1.0-1.x86_64.rpm
 zypper --non-interactive in --allow-unsigned-rpm dist/ocio-0.1.0-1.x86_64.rpm
+rpm -q ocio
+ldd /usr/bin/ocio
 rpm -qf /usr/lib64/libOpenGL.so.0
+rpm -V ocio
 rpm -V ocio && echo clean
 rpm -e --test libglvnd
+zypper remove ocio
+./packaging/rpm/demo-rpm.sh
+./packaging/rpm/demo-rpm.sh --dry-run
+./packaging/rpm/demo-rpm.sh --bin /src/dist/cmake/ocio --rpm /src/dist/ocio-0.1.0-1.x86_64.rpm
 
 # === Route 2: AppImage Mechanics ===
 file dist/ocio-x86_64.AppImage
