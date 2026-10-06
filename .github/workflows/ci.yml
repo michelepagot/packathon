@@ -2,9 +2,18 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
+    # Docs-only changes do not need the build matrix: slides are linted by slides.yml
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/workflows/slides.yml'
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/workflows/slides.yml'
   workflow_dispatch:
 
 jobs:
@@ -268,29 +277,3 @@ jobs:
         run: |
           ./build/bin/ocio --version
           ./build/bin/ocio --help
-
-  # ===========================================================================
-  # 7. Slide Deck Coherence Linter
-  # ===========================================================================
-  lint-slides:
-    name: Slide Deck Coherence Linter
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Filter for slides changes
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            slides:
-              - 'docs/pages/slides/**'
-              - '.github/workflows/ci.yml'
-
-      - name: Run Slide Coherence Linter
-        if: steps.filter.outputs.slides == 'true' || github.event_name == 'workflow_dispatch'
-        run: |
-          python3 docs/pages/slides/lint-slides.py docs/pages/slides/slides-en.md docs/pages/slides/slides-it.md
-
-

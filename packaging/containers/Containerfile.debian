@@ -1,18 +1,20 @@
 # =============================================================================
-# Packathon - Debian Builder Container
+# Packathon - Debian Containers (Vanilla Demo & Builder)
 # =============================================================================
-# Tools only: compilers, dev headers, dpkg-dev, flatpak-builder, appimagetool.
-# The image contains no project source and no ocio binary: mount the checkout
-# at /src and name the script to run. With no command it opens a shell.
-#
-# ocio runs in vanilla upstream images instead, see the walkthrough in
-# docs/container-packaging.md.
+# Targets:
+#   - vanilla-demo: Pristine Debian runtime environment + demo ergonomics (fzf, prompt, history).
+#                   Contains NO compilers and NO ocio runtime dependencies.
+#   - builder:      Full build-time environment (inherits vanilla-demo and adds dev tools).
 #
 # Usage:
-#   1. Build the image (nothing is copied in, so the context is this directory):
+#   1. Build the vanilla demo image:
+#      podman build --target vanilla-demo -t localhost/packathon-debian:demo -f packaging/containers/Containerfile.debian packaging/containers
+#      podman run --rm -it -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix:ro --device /dev/dri -v "$PWD:/src:Z" localhost/packathon-debian:demo
+#
+#   2. Build the builder image (default):
 #      podman build -t localhost/packathon-debian:builder -f packaging/containers/Containerfile.debian packaging/containers
 #
-#   2. Build packages with CPack (default: RAYLIB_MODE=FETCH, static raylib):
+#   3. Build packages with CPack (default: RAYLIB_MODE=FETCH, static raylib):
 #      podman run --rm -v "$PWD:/src:Z" localhost/packathon-debian:builder packaging/containers/build-package.sh
 #      # Generated .deb and .tar.gz packages are placed in ./dist/
 #
@@ -22,29 +24,55 @@
 #      # Build using pre-staged local source (offline/hermetic, no network):
 #      podman run --rm -v "$PWD:/src:Z" -e RAYLIB_MODE=LOCAL localhost/packathon-debian:builder packaging/containers/build-package.sh
 #
-#   3. Other recipes (hand-written DEB, AppImage):
+#   4. Other recipes (hand-written DEB, AppImage):
 #      podman run --rm -v "$PWD:/src:Z" localhost/packathon-debian:builder packaging/deb/build-deb.sh
 #      podman run --rm -v "$PWD:/src:Z" -e BUILD_DIR=/tmp/build -e OUTPUT_DIR=/src/dist \
 #        localhost/packathon-debian:builder packaging/appimage/build-appimage.sh
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Builder (build-time tools only)
+# Stage 1: Vanilla Demo Environment (clean runtime + presentation ergonomics)
 # -----------------------------------------------------------------------------
-FROM debian:bookworm-slim AS builder
+FROM debian:bookworm-slim AS vanilla-demo
+
+LABEL org.opencontainers.image.title="Packathon Debian Vanilla Demo" \
+      org.opencontainers.image.description="Pristine Debian Bookworm runtime environment with demo ergonomics (fzf, prompt, history)"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install fzf (only pulls libc6, no graphics/sound libraries)
+# (remove dpkg exclusions to allow fzf shell key-bindings from /usr/share/doc to be installed)
+RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes /etc/dpkg/dpkg.cfg.d/docker && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends fzf && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Blue prompt to distinguish Vanilla from Red Builder
+RUN echo "export PS1='\[\e[34m\][DEBIAN VANILLA]\w\[\e[0m\]# '" >> /root/.bashrc && \
+    echo '[ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && source /usr/share/doc/fzf/examples/key-bindings.bash' >> /root/.bashrc
+
+COPY cmd_history.debian /root/.bash_history
+
+WORKDIR /src
+CMD ["/bin/bash"]
+
+# -----------------------------------------------------------------------------
+# Stage 2: Builder (build-time tools only)
+# -----------------------------------------------------------------------------
+FROM vanilla-demo AS builder
 
 LABEL org.opencontainers.image.title="Packathon Debian Builder" \
       org.opencontainers.image.description="Build-time environment for compiling ocio and packaging DEBs"
 
-ENV DEBIAN_FRONTEND=noninteractive
+# Red prompt to distinguish Builder from Vanilla
+RUN echo "export PS1='\[\e[31m\][DEBIAN BUILDER]\w\[\e[0m\]# '" >> /root/.bashrc
 
 # Enable Bookworm Backports to get a modern version of flatpak-builder
 RUN echo "deb http://deb.debian.org/debian bookworm-backports main" > /etc/apt/sources.list.d/backports.list
 
 # Install build tools, dev headers, package generator, and demo tools
-# (remove dpkg exclusions to allow fzf shell key-bindings from /usr/share/doc to be installed)
-RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes /etc/dpkg/dpkg.cfg.d/docker && \
-    apt-get update && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         # [Build-Time Tools]
         gcc \
@@ -75,8 +103,6 @@ RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes /etc/dpkg/dpkg.cfg.d/docker && \
         # elfutils provides eu-strip and eu-elfcompress, required by flatpak-builder
         # to strip debug symbols from built binaries during packaging
         elfutils \
-        # Demo tools
-        fzf \
     # Install flatpak-builder specifically from backports
     && apt-get install -y --no-install-recommends -t bookworm-backports flatpak-builder \
     && apt-get clean \
@@ -105,11 +131,6 @@ RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flath
         org.freedesktop.Platform//25.08 \
         org.freedesktop.Sdk//25.08 && \
     flatpak remote-delete --force flathub
-
-RUN echo "export PS1='\[\e[31m\][DEBIAN BUILDER]\w\[\e[0m\]# '" >> /root/.bashrc && \
-    echo '[ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && source /usr/share/doc/fzf/examples/key-bindings.bash' >> /root/.bashrc
-
-COPY cmd_history /root/.bash_history
 
 WORKDIR /src
 

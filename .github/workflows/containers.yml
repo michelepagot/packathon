@@ -4,7 +4,7 @@ name: Container Images
   push:
     branches: [ main ]
     tags: [ 'v*' ]
-    # Tag pushes ignore path filters, so every release gets semver-tagged builders
+    # Tag pushes ignore path filters, so every release gets semver-tagged images
     paths:
       - 'packaging/containers/**'
       - '.github/workflows/containers.yml'
@@ -20,7 +20,7 @@ name: Container Images
 
 jobs:
   build:
-    name: Build (${{ matrix.distro }} - ${{ matrix.platform.arch_slug }})
+    name: Build (${{ matrix.image.distro }}-${{ matrix.image.type_slug }} - ${{ matrix.platform.arch_slug }})
     runs-on: ${{ matrix.platform.os }}
     permissions:
       contents: read
@@ -29,7 +29,35 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [opensuse, debian]
+        image:
+          - distro: opensuse
+            type_slug: demo
+            target: vanilla-demo
+            file: packaging/containers/Containerfile.opensuse
+            title: "Packathon openSUSE Vanilla Demo"
+            description: "openSUSE Tumbleweed clean runtime with demo ergonomics (fzf, prompt, history)"
+            smoke: "command -v fzf && test -f /root/.bash_history"
+          - distro: opensuse
+            type_slug: builder
+            target: builder
+            file: packaging/containers/Containerfile.opensuse
+            title: "Packathon openSUSE Builder"
+            description: "openSUSE Tumbleweed build tools for ocio: CPack RPM, rpmbuild, AppImage, Flatpak"
+            smoke: "cmake --version && rpmbuild --version && appimagetool --version && flatpak-builder --version"
+          - distro: debian
+            type_slug: demo
+            target: vanilla-demo
+            file: packaging/containers/Containerfile.debian
+            title: "Packathon Debian Vanilla Demo"
+            description: "Debian Bookworm clean runtime with demo ergonomics (fzf, prompt, history)"
+            smoke: "command -v fzf && test -f /root/.bash_history"
+          - distro: debian
+            type_slug: builder
+            target: builder
+            file: packaging/containers/Containerfile.debian
+            title: "Packathon Debian Builder"
+            description: "Debian Bookworm build tools for ocio: CPack DEB, dpkg-deb, AppImage, Flatpak"
+            smoke: "cmake --version && command -v dpkg-shlibdeps && appimagetool --version && flatpak-builder --version"
         platform:
           - os: ubuntu-latest
             arch: linux/amd64
@@ -37,17 +65,6 @@ jobs:
           - os: ubuntu-24.04-arm
             arch: linux/arm64
             arch_slug: arm64
-        include:
-          - distro: opensuse
-            file: packaging/containers/Containerfile.opensuse
-            title: "Packathon openSUSE Builder"
-            description: "openSUSE Tumbleweed build tools for ocio: CPack RPM, rpmbuild, AppImage, Flatpak"
-            smoke: "cmake --version && rpmbuild --version && appimagetool --version && flatpak-builder --version"
-          - distro: debian
-            file: packaging/containers/Containerfile.debian
-            title: "Packathon Debian Builder"
-            description: "Debian Bookworm build tools for ocio: CPack DEB, dpkg-deb, AppImage, Flatpak"
-            smoke: "cmake --version && command -v dpkg-shlibdeps && appimagetool --version && flatpak-builder --version"
 
     steps:
       - name: Checkout repository
@@ -58,7 +75,7 @@ jobs:
 
       - name: Set lowercase image name
         run: |
-          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.distro }}-builder" >> "$GITHUB_ENV"
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.image.distro }}-${{ matrix.image.type_slug }}" >> "$GITHUB_ENV"
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
@@ -75,8 +92,8 @@ jobs:
           images: |
             ${{ env.IMAGE_NAME }}
           labels: |
-            org.opencontainers.image.title=${{ matrix.title }}
-            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.title=${{ matrix.image.title }}
+            org.opencontainers.image.description=${{ matrix.image.description }}
 
       # On PR: build and load locally to run smoke test natively on the runner
       - name: Build image (PR)
@@ -84,17 +101,18 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: packaging/containers
-          file: ${{ matrix.file }}
+          file: ${{ matrix.image.file }}
+          target: ${{ matrix.image.target }}
           load: true
           tags: ${{ env.IMAGE_NAME }}:test
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
+          cache-from: type=gha,scope=${{ matrix.image.distro }}-${{ matrix.image.type_slug }}-${{ matrix.platform.arch_slug }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.distro }}-${{ matrix.image.type_slug }}-${{ matrix.platform.arch_slug }}
 
-      - name: Verify the build tools in the image (PR)
+      - name: Verify the tools in the image (PR)
         if: github.event_name == 'pull_request'
         run: |
-          docker run --rm ${{ env.IMAGE_NAME }}:test sh -c '${{ matrix.smoke }}'
+          docker run --rm ${{ env.IMAGE_NAME }}:test sh -c '${{ matrix.image.smoke }}'
 
       # On push: build natively and push single-arch image by digest to GHCR
       - name: Build and push by digest
@@ -103,18 +121,19 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: packaging/containers
-          file: ${{ matrix.file }}
+          file: ${{ matrix.image.file }}
+          target: ${{ matrix.image.target }}
           platforms: ${{ matrix.platform.arch }}
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
+          cache-from: type=gha,scope=${{ matrix.image.distro }}-${{ matrix.image.type_slug }}-${{ matrix.platform.arch_slug }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.distro }}-${{ matrix.image.type_slug }}-${{ matrix.platform.arch_slug }}
 
-      - name: Verify the build tools in the image
+      - name: Verify the tools in the image
         if: github.event_name != 'pull_request'
         run: |
           docker pull "${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
-          docker run --rm "${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" sh -c '${{ matrix.smoke }}'
+          docker run --rm "${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" sh -c '${{ matrix.image.smoke }}'
 
       - name: Export digest
         if: github.event_name != 'pull_request'
@@ -127,13 +146,13 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.distro }}-${{ matrix.platform.arch_slug }}
+          name: digests-${{ matrix.image.distro }}-${{ matrix.image.type_slug }}-${{ matrix.platform.arch_slug }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
   merge:
-    name: Merge & Publish (${{ matrix.distro }})
+    name: Merge & Publish (${{ matrix.image.distro }}-${{ matrix.image.type_slug }})
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name != 'pull_request'
@@ -146,11 +165,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        image:
           - distro: opensuse
+            type_slug: demo
+            title: "Packathon openSUSE Vanilla Demo"
+            description: "openSUSE Tumbleweed clean runtime with demo ergonomics (fzf, prompt, history)"
+          - distro: opensuse
+            type_slug: builder
             title: "Packathon openSUSE Builder"
             description: "openSUSE Tumbleweed build tools for ocio: CPack RPM, rpmbuild, AppImage, Flatpak"
           - distro: debian
+            type_slug: demo
+            title: "Packathon Debian Vanilla Demo"
+            description: "Debian Bookworm clean runtime with demo ergonomics (fzf, prompt, history)"
+          - distro: debian
+            type_slug: builder
             title: "Packathon Debian Builder"
             description: "Debian Bookworm build tools for ocio: CPack DEB, dpkg-deb, AppImage, Flatpak"
 
@@ -159,12 +188,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
-          pattern: digests-${{ matrix.distro }}-*
+          pattern: digests-${{ matrix.image.distro }}-${{ matrix.image.type_slug }}-*
           merge-multiple: true
 
       - name: Set lowercase image name
         run: |
-          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.distro }}-builder" >> "$GITHUB_ENV"
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.image.distro }}-${{ matrix.image.type_slug }}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -193,8 +222,8 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
           labels: |
-            org.opencontainers.image.title=${{ matrix.title }}
-            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.title=${{ matrix.image.title }}
+            org.opencontainers.image.description=${{ matrix.image.description }}
 
       - name: Create manifest list and push
         id: manifest
