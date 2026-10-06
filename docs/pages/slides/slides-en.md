@@ -801,7 +801,7 @@ Evaluating the trade-offs of delegation:
 Note:
 Introducing AppImage:
 - Origin: Created in 2004 by Simon Peter (probono) as klik, rebranded in 2011 as AppImage.
-- Nature: An application packaged as a single executable file containing its dependencies and an embedded SquashFS image.
+- Nature: An application packaged as a single executable file with an embedded SquashFS image. It contains the dependencies the host is not expected to have, not all of them (see "The Box Has an Edge").
 - Adoption: De facto upstream format for standalone portable Linux desktop applications (no root required).
 - Daily CLI:
   * Run: chmod +x ./file.AppImage && ./file.AppImage
@@ -821,9 +821,9 @@ Next we look at what is physically inside the AppImage file on disk.
 $ ./ocio-x86_64.AppImage --appimage-extract
 $ ls -1 squashfs-root
 AppRun
-ocio
 ocio.desktop
 ocio.png
+usr
 ```
 <!-- .element: class="fragment" -->
 
@@ -834,6 +834,11 @@ Low-level mechanics of AppImage:
 - AppRun sets LD_LIBRARY_PATH and launches the application.
 - When terminated, the FUSE mount point is unmounted and removed.
 - Demonstrating --appimage-extract proves that under the hood, it is a complete, self-sufficient filesystem root.
+FUSE in a container (the demo runs in podman):
+- Podman does not pass /dev/fuse, and the vanilla image has no fusermount3. A plain ./ocio.AppImage fails: "fuse: device not found ... Cannot mount AppImage, please check your FUSE setup".
+- Solution 1, no FUSE: --appimage-extract-and-run (or APPIMAGE_EXTRACT_AND_RUN=1) unpacks to /tmp/appimage_extracted_* and runs AppRun from there. No image change, no extra privileges.
+- Solution 2, real mount as on a desktop: podman run --device /dev/fuse --cap-add SYS_ADMIN, plus zypper in fuse3 (fusermount3) in the container. The mount appears on /tmp/.mount_ocio.A*.
+- Either way, the next stop is libOpenGL.so.0: the AppImage does not bundle the GL stack, it uses the host one.
 
 --
 
@@ -851,20 +856,148 @@ $ hexdump -C -n 16 ocio-x86_64.AppImage
 | **`08..0A`** | **`EI_PAD`** | **`41 49 02`** | **`AI\x02` (AppImage Type 2 magic)** |
 | `0B..0F` | `EI_PAD` | `00 00 00...` | Remaining zeroed padding |
 
-* **Zero Execution Penalty**: Linux kernel and `ld.so` ignore `EI_PAD`
-* **Instant Detection**: Desktop indexers and `file` identify AppImages in O(1) time
-* **Format Versioning**: `AI\x01` (ISO 9660) vs. `AI\x02` (SquashFS + FUSE)
-
 Note:
 Dissecting the AppImage binary header:
 - In Slide 9 we saw that every ELF binary begins with the 16-byte e_ident header.
 - The ELF specification defines bytes 8 to 15 as EI_PAD: reserved padding intended for future ABI expansion, conventionally zeroed.
 - AppImage Type 2 overwrites bytes 8, 9, and 10 with ASCII 'A', 'I', and 0x02.
 - Why this is brilliant:
-  1. The OS kernel loader only checks bytes 0 to 3 (\x7fELF) and ignores EI_PAD, so the file remains 100% executable machine code.
-  2. Desktop indexers, file managers, and app managers don't need to mount or scan the multi-megabyte SquashFS payload: reading 11 bytes gives instant identification.
-  3. Format generations are cleanly versioned: AI\x01 for legacy Type 1 vs AI\x02 for modern Type 2.
+  1. Zero execution penalty: the OS kernel loader only checks bytes 0 to 3 (\x7fELF) and, like ld.so, ignores EI_PAD, so the file remains 100% executable machine code.
+  2. Instant detection: desktop indexers, file managers, app managers and file(1) don't need to mount or scan the multi-megabyte SquashFS payload: reading 11 bytes gives instant identification, in O(1) time.
+  3. Format versioning: generations are cleanly versioned, AI\x01 for legacy Type 1 (ISO 9660) vs AI\x02 for modern Type 2 (SquashFS + FUSE).
 - The emulation caveat: Native kernels ignore EI_PAD, but container emulation (QEMU-user binfmt_misc) can trip on non-standard padding with ENOEXEC ("Exec format error"). This is why native ARM64 runners are required for reliable multi-arch builds.
+
+--
+
+## Cooking an AppImage
+
+```text
+AppDir/
+├── AppRun -> usr/bin/ocio
+├── ocio.desktop
+├── ocio.png
+└── usr/
+    ├── bin/ocio
+    ├── lib/          ← bundled libraries
+    └── share/...
+```
+
+| Recipe | Who fills `usr/lib` |
+|---|---|
+| `appimagetool AppDir/ ocio.AppImage` | **You**, by hand. Nobody checks. |
+| `linuxdeploy --appdir AppDir ...` + `appimagetool` | **The tool**: scans `DT_NEEDED`, copies, sets `RUNPATH` |
+<!-- .element: class="fragment" -->
+
+Note:
+An AppImage is a squashed directory tree, the AppDir:
+- AppRun is the entry point (here a symlink to the binary).
+- A .desktop file and its icon are required at the top level: appimagetool refuses to pack without them.
+- usr/ is a small root filesystem: binary, bundled libraries, desktop file, icons, metainfo.
+Two recipes, both in packaging/appimage/build-appimage.sh --method {linuxdeploy,appimagetool}:
+- appimagetool by hand: we assemble the AppDir (CMake install, .desktop, icon, AppRun symlink). appimagetool only squashes the tree and prepends the runtime. It never looks at the dependencies: if the binary needs a library that is not on the host, nothing warns you.
+- linuxdeploy (the script default): walks the DT_NEEDED tree, copies every library that is not on the AppImage excludelist into usr/lib, sets RUNPATH=$ORIGIN/../lib with patchelf, strips, and creates AppRun. appimagetool then packs the result.
+- linuxdeploy and appimagetool are themselves AppImages. The builder images ship them pre-extracted, so they run without FUSE; the script downloads nothing and fails with install hints if a tool is missing.
+Key message: "self-contained" is not a property of the format. It is a packaging job, and the next question is: what should go in the box?
+
+--
+
+## Cooking an AppImage: Step by Step
+
+```bash
+# 1. Build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+```
+
+```bash
+# 2. Stage the AppDir
+DESTDIR=AppDir cmake --install build --component ocio --prefix /usr
+```
+<!-- .element: class="fragment" -->
+
+```bash
+# 3. Bundle what the host is not expected to have
+linuxdeploy --appdir AppDir --executable AppDir/usr/bin/ocio \
+    --desktop-file ocio.desktop --icon-file ocio.png
+```
+<!-- .element: class="fragment" -->
+
+```bash
+# 4. Squash the AppDir and prepend the runtime
+appimagetool --runtime-file /usr/lib/runtime-x86_64 AppDir ocio-x86_64.AppImage
+```
+<!-- .element: class="fragment" -->
+
+Note:
+The four steps that packaging/appimage/build-appimage.sh runs with the default --method linuxdeploy:
+1. Build: a normal CMake Release build. Nothing AppImage-specific yet.
+2. Stage: install only the ocio component (the default install also has raylib's dev files) into AppDir, with --prefix /usr because linuxdeploy expects the usr/ layout. This gives usr/bin/ocio plus the desktop file, icons and metainfo.
+3. Bundle: linuxdeploy reads DT_NEEDED recursively, copies into usr/lib every library that is not on the excludelist, sets RUNPATH=$ORIGIN/../lib, strips, and creates AppRun and the top-level .desktop and icon links. For our default build it copies nothing: everything ocio needs is on the excludelist (next slide).
+4. Pack: appimagetool turns the AppDir into a SquashFS image and prepends the type2 runtime, the ELF stub with the AI\x02 magic from the EI_PAD slide. We pass the runtime file explicitly, otherwise appimagetool downloads it at every build.
+The hand recipe (--method appimagetool) skips step 3: we place AppRun, the .desktop file and the icon ourselves, and nobody checks the libraries.
+All three tools (linuxdeploy, appimagetool, runtime) come pre-installed in the builder images; linuxdeploy and appimagetool are pre-extracted, so they run without FUSE.
+
+--
+
+## The Box Has an Edge
+
+| Inside the box | Outside: the host |
+|---|---|
+| App binary &amp; assets | glibc: `libc`, `libm`, `ld.so` |
+| Libraries the app brings | GL: `libOpenGL`, `libGLX`, `libGLdispatch` |
+| | X11 / xcb, `libdrm`, ALSA |
+
+The line is the AppImage **excludelist**: libraries assumed present on every desktop.
+<!-- .element: class="fragment" -->
+
+```text
+$ ./ocio.AppImage            # vanilla Tumbleweed container
+/ocio.AppImage: error while loading shared libraries: libOpenGL.so.0
+```
+<!-- .element: class="fragment" -->
+
+<p class="fragment text-info">
+Correct box, wrong host: a bare container is not a desktop.
+</p>
+
+Note:
+The excludelist (pkg2appimage/excludelist, applied by linuxdeploy) lists the libraries "we will assume to be present on the host system and hence should NOT be bundled inside AppImages". It contains glibc, the whole GL stack (libOpenGL, libGLX, libGLdispatch, libGL, libEGL, libdrm), X11/xcb and ALSA.
+Why GL must stay outside: same argument as the Build vs. Runtime slide. GPU drivers are dynamic dispatchers that must match the host card; libglvnd loads libGLX_mesa or libGLX_nvidia from the host. A bundled Mesa works in a container and breaks on the NVIDIA proprietary driver or on a GPU newer than the bundled Mesa.
+Our ocio: raylib is static, and DT_NEEDED is only libm, libOpenGL.so.0, libGLX.so.0, libc. All four are on the excludelist. So our AppImage is correct by the format's own rules: linuxdeploy finds nothing to bundle.
+The error in the container is the edge of the box, not a bug in it. Installing libglvnd in the container recreates the desktop base system that AppImage assumes; on a real desktop it is already there.
+The catch: AppImage never declares that base system. The excludelist is "a working document". Flatpak turns the same idea into an explicit, versioned runtime (bridge to Flatpak).
+Side note: the AppImage built on Debian starts and prints --version in the same container. It is not a better box: --as-needed dropped GL from DT_NEEDED, so it fails later, when GLFW dlopen()s Xlib.
+
+--
+
+## Cooked Wrong, Cooked Right
+
+```text
+$ RAYLIB_SHARED=ON build-appimage.sh --method appimagetool
+$ ./ocio-x86_64.AppImage
+... error while loading shared libraries: libraylib.so.550
+```
+
+```text
+$ RAYLIB_SHARED=ON build-appimage.sh --method linuxdeploy
+$ ls AppDir/usr/lib
+libraylib.so.550
+$ readelf -d AppDir/usr/bin/ocio | grep RUNPATH
+ (RUNPATH)  Library runpath: [$ORIGIN/../lib]
+```
+<!-- .element: class="fragment" -->
+
+<p class="fragment text-danger">
+<code>zypper in raylib</code> would hide the bug, and defeat the point of the box.
+</p>
+
+Note:
+Now a real packaging mistake, above the excludelist line:
+- Build raylib as a shared library. ocio now needs libraylib, which is not on the excludelist: it belongs in the box.
+- Wrong: the hand recipe does not put it in (CMake installs libraylib.so with the raylib-devel component, not with ocio). The build-tree binary runs, because CMake's build RPATH points into the build directory: "works on my machine" one more time. The AppImage fails on the desktop.
+- Right: linuxdeploy copies libraylib into usr/lib and sets RUNPATH=$ORIGIN/../lib, so ld.so finds it inside the mount. libOpenGL and libGLX stay outside, as they should.
+- Not a fix: installing raylib with the distro package manager. It turns the AppImage back into a binary that depends on the distro. On Tumbleweed it would not even work: the distro ships raylib 6.0, ocio was built against 5.5.
+Takeaway: the fix for a broken box is inside the box, not on the host.
+TO VERIFY before the talk: the exact soname, the error text and RUNPATH vs RPATH in the linuxdeploy output.
 
 ---
 
