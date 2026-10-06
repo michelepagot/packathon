@@ -110,31 +110,21 @@ Takeaway:
 * <!-- .element: class="fragment" --> Maintainer
 
 Note:
-Presentare le tre prospettive una alla volta:
+1. **L'Utilizzatore** (Vuole l'app, ma con esigenze opposte):
+   - **Versioni:** Stabilità assoluta ("rocciosa") VS Novità day-zero.
+   - **UX:** Installazioni e aggiornamenti senza attriti (zero configurazioni).
+   - **Risorse:** Avvio istantaneo VS Risparmio di RAM/Disco.
+   - **Portabilità:** Stessa esperienza garantita anche cambiando PC o distro.
 
-1. L'Utilizzatore (punto di partenza comune: vuole semplicemente l'applicazione):
-- Ma le necessita' interne sono divergenti: c'e' chi vuole una versione rocciosa e stabile per lavorare senza sorprese, e chi pretende l'ultimissima release con le novita' del giorno zero.
-- Vogliamo che si installi in meno passaggi possibile e vogliamo poterla aggiornare senza attriti.
-- C'e' chi guarda la reattivita' e vuole che parta istantaneamente, chi ha poco disco o RAM e non tollera sprechi, e chi se ne frega dello spazio purche' non debba configurare nulla.
-- E poi c'e' la variabilita' fisica: ognuno ha un hardware e una scheda video diversa, e quando cambiamo PC o passiamo a un'altra distro pretendiamo di ritrovare la stessa identica applicazione funzionante.
+2. **Lo Sviluppatore** (Vuole la massima diffusione):
+   - **Focus:** Conosce la sua app a fondo, ma ignora i dettagli di 20 distro o hardware diversi.
+   - **Asimmetria:** Controllo al 100% sul proprio codice, 0% sul sistema operativo dell'utente.
+   - **Obiettivo:** "L'ho testato da me, deve funzionare senza sorprese da chi lo scarica".
 
-2. Lo Sviluppatore (focalizzato su chi distribuisce pubblicamente, non su commessa singola):
-- L'obiettivo e' raggiungere la platea piu' ampia possibile.
-- Conosce alla perfezione la propria applicazione, la sua logica e le sue dipendenze dirette.
-- Ma non conosce i dettagli e le particolarita' di venti distribuzioni diverse, e non possiede il laboratorio hardware necessario per testare ogni permutazione di kernel, driver e librerie.
-- Vive una totale asimmetria di potere: controlla al 100% il proprio codice sorgente, ma ha zero potere sul sistema operativo su cui il programma dovra' girare. Vuole solo una cosa: che cio' che ha compilato e testato funzioni senza sorprese sul computer di chi lo scarica.
-
-3. Il Maintainer / Distro Owner:
-- Conosce la specifica applicazione meno bene del suo creatore, e conosce il build system dell'app molto meno dello sviluppatore.
-- Conosce pero' benissimo il sistema operativo nel suo insieme e tutti gli altri 30.000 pacchetti distribuiti.
-- Il suo interesse primario e' che la roba distribuita parta, funzioni e non corrompa il sistema: incompatibilita' ABI, collisioni di file in /usr e falle di sicurezza nelle librerie condivise (se c'e' una CVE su OpenSSL, vuole patcharla una volta per tutte le applicazioni).
-- Anche qui ci sono ideali ed esigenze diverse: chi vuole avere piu' applicazioni possibili nei repo a costo di sforzi enormi (catalogo sterminato), chi ne vuole poche ma rigidamente testate e fresche; chi persegue la rolling release continua (Tumbleweed, Arch) e chi la stabilita' decennale (SLES, Debian, RHEL).
-
-Pausa interattiva con la sala:
-"Prima di addentrarci nel COME, fermiamoci a riflettere sul PERCHE'. Guardate questo quadro: vi riconoscete in queste tensioni? C'e' qualche vincolo o necessita' fondamentale che uno di questi tre attori vive ogni giorno e che qui non abbiamo nominato?"
-
-Raccordo verso il resto del talk:
-"Nessuno ha ragione o torto: sono investimenti legittimi di tempo, energie e risorse su aspetti diversi. I formati di packaging che esploriamo oggi non nascono per rivalita', ma sono risposte ingegneristiche diverse per arbitrare questo trilemma. Ora vediamo il COME: cosa succede quando proviamo a distribuire il nostro binario."
+3. **Il Maintainer / Distro Owner** (Vuole l'integrità del sistema):
+   - **Focus:** Conosce l'OS e l'ecosistema (30k pacchetti), meno la singola app.
+   - **Priorità:** Niente corruzioni, no conflitti ABI, patch di sicurezza centralizzate (es. CVE su OpenSSL).
+   - **Filosofie:** Rolling release (Arch, Tumbleweed) VS Stabilità decennale (Debian, RHEL).
 
 --
 
@@ -194,6 +184,32 @@ Comando da mostrare:
 Ponte verso la slide successiva:
 "Andiamo a ispezionare direttamente il binario per capire cosa stava cercando il dynamic linker."
 "Il kernel valida l'array di 16 byte e_ident (\x7fELF). Teniamo a mente questi 16 byte: vedremo nel Capitolo 5 come AppImage riutilizza lo spazio di padding inutilizzato alla fine dell'header."
+
+
+**Cosa accade realmente (Il mito del main):**
+- L'esecuzione *non* inizia in `main()`.
+- Il Kernel carica il binario e cede il controllo a `ld.so` (userspace). Se manca una libreria, `ld.so` blocca tutto subito (exit 127).
+
+**Sotto il cofano (Passo per Passo):**
+1. **Shell**: Trova l'eseguibile via `$PATH`.
+2. **Kernel (`execve`)**:
+   - Mappa l'ELF, legge `PT_INTERP` (es. `/lib64/ld-linux-x86-64.so.2`).
+   - Prepara stack e Auxiliary Vector.
+   - **Cruciale:** Passa il controllo (RIP) a `ld.so` (successo per il Kernel).
+   - *(Se manca l'interprete: `execve` fallisce subito con ENOENT).*
+3. **Dynamic Linker (`ld.so`)**:
+   - Legge `DT_NEEDED`.
+   - Cerca le librerie (ordine: RPATH -> LD_LIBRARY_PATH -> Cache -> /lib64).
+   - Non trova `libOpenGL.so.0` &rarr; stampa errore &rarr; `exit_group(127)`.
+4. **`main()`**: Mai raggiunto.
+
+**Comando (Live/Demo):**
+- `$ readelf -p .interp ./ocio` (Mostra il dynamic linker hardcoded nell'ELF).
+
+**Ponte (Verso la prossima slide):**
+- "Ispezioniamo il binario: cosa cercava il linker?"
+- **Foreshadowing (AppImage):** Il kernel valida l'header ELF (`\x7fELF`). Nel Capitolo 5 vedremo come AppImage sfrutta il padding libero in questo header.
+
 
 --
 
@@ -659,7 +675,7 @@ Valutazione dei trade-off della delega:
 Note:
 Introduciamo AppImage:
 - Origine: Creato nel 2004 da Simon Peter (probono) come klik, rinominato nel 2011 come AppImage.
-- Natura: Un'applicazione impacchettata come singolo file eseguibile contenente le sue dipendenze e un'immagine SquashFS incorporata.
+- Natura: Un'applicazione impacchettata come singolo file eseguibile con un'immagine SquashFS incorporata. Contiene le dipendenze che l'host non si presume abbia, non tutte (vedi "La Scatola Ha un Bordo").
 - Diffusione: Formato upstream de facto per applicazioni desktop Linux portabili e autonome (non richiede root).
 - CLI quotidiana:
   * Esecuzione: chmod +x ./file.AppImage && ./file.AppImage
@@ -679,9 +695,9 @@ Ora andiamo a vedere cosa c'e' fisicamente dentro il file AppImage sul disco.
 $ ./ocio-x86_64.AppImage --appimage-extract
 $ ls -1 squashfs-root
 AppRun
-ocio
 ocio.desktop
 ocio.png
+usr
 ```
 <!-- .element: class="fragment" -->
 
@@ -692,6 +708,11 @@ Meccanica interna di AppImage:
 - AppRun imposta LD_LIBRARY_PATH e lancia l'applicazione.
 - Alla chiusura dell'app, il mount FUSE viene smontato e rimosso.
 - L'opzione --appimage-extract dimostra come all'interno vi sia una root di filesystem completa e autosufficiente.
+FUSE in un container (la demo gira in podman):
+- Podman non passa /dev/fuse e l'immagine vanilla non ha fusermount3. Un semplice ./ocio.AppImage fallisce: "fuse: device not found ... Cannot mount AppImage, please check your FUSE setup".
+- Soluzione 1, senza FUSE: --appimage-extract-and-run (oppure APPIMAGE_EXTRACT_AND_RUN=1) estrae in /tmp/appimage_extracted_* ed esegue AppRun da li'. Nessuna modifica all'immagine, nessun privilegio extra.
+- Soluzione 2, mount reale come su un desktop: podman run --device /dev/fuse --cap-add SYS_ADMIN, piu' zypper in fuse3 (fusermount3) nel container. Il mount compare in /tmp/.mount_ocio.A*.
+- In entrambi i casi il passo successivo e' libOpenGL.so.0: l'AppImage non include lo stack GL, usa quello dell'host.
 
 --
 
@@ -709,20 +730,148 @@ $ hexdump -C -n 16 ocio-x86_64.AppImage
 | **`08..0A`** | **`EI_PAD`** | **`41 49 02`** | **`AI\x02` (magic AppImage Type 2)** |
 | `0B..0F` | `EI_PAD` | `00 00 00...` | Byte di padding rimanenti a zero |
 
-* **Zero Penalità all'Avvio**: Kernel Linux e `ld.so` ignorano `EI_PAD`
-* **Identificazione Immediata**: Tool desktop e `file` riconoscono AppImage in tempo O(1)
-* **Versionamento del Formato**: `AI\x01` (ISO 9660) vs. `AI\x02` (SquashFS + FUSE)
-
 Note:
 Dissezione dell'header binario di AppImage:
 - Nella Slide 9 abbiamo visto che ogni file ELF comincia con l'array di 16 byte e_ident.
 - La specifica ELF riserva i byte da 8 a 15 come EI_PAD: byte di padding per future espansioni, normalmente lasciati a zero.
 - AppImage Type 2 sovrascrive i byte 8, 9 e 10 con i caratteri ASCII 'A', 'I' e il byte 0x02.
 - Perché è una soluzione brillante:
-  1. Il kernel verifica unicamente i primi 4 byte (\x7fELF) ed ignora EI_PAD, lasciando il file un eseguibile perfettamente valido.
-  2. Gestori desktop, indicizzatori e app manager non devono montare o scansionare i megabyte del payload SquashFS: leggere 11 byte identifica subito il tipo di file.
-  3. Distingue in modo pulito le generazioni: AI\x01 per il Type 1 (ISO 9660) e AI\x02 per il Type 2 (SquashFS).
+  1. Zero penalita' all'avvio: il kernel verifica unicamente i primi 4 byte (\x7fELF) e, come ld.so, ignora EI_PAD, lasciando il file un eseguibile perfettamente valido.
+  2. Identificazione immediata: gestori desktop, indicizzatori, app manager e file(1) non devono montare o scansionare i megabyte del payload SquashFS: leggere 11 byte identifica subito il tipo di file, in tempo O(1).
+  3. Versionamento del formato: distingue in modo pulito le generazioni, AI\x01 per il Type 1 (ISO 9660) e AI\x02 per il Type 2 (SquashFS + FUSE).
 - Il limite dell'emulazione: I kernel nativi ignorano EI_PAD, ma i layer di emulazione container (QEMU-user binfmt_misc) possono fallire con ENOEXEC ("Exec format error") quando trovano padding non standard. Per questo i runner ARM64 nativi sono essenziali per build multi-arch affidabili.
+
+--
+
+## Cucinare un AppImage
+
+```text
+AppDir/
+├── AppRun -> usr/bin/ocio
+├── ocio.desktop
+├── ocio.png
+└── usr/
+    ├── bin/ocio
+    ├── lib/          ← bundled libraries
+    └── share/...
+```
+
+| Ricetta | Chi riempie `usr/lib` |
+|---|---|
+| `appimagetool AppDir/ ocio.AppImage` | **Tu**, a mano. Nessuno controlla. |
+| `linuxdeploy --appdir AppDir ...` + `appimagetool` | **Il tool**: legge `DT_NEEDED`, copia, imposta `RUNPATH` |
+<!-- .element: class="fragment" -->
+
+Note:
+Un AppImage e' un albero di directory compresso, l'AppDir:
+- AppRun e' il punto di ingresso (qui un symlink al binario).
+- Un file .desktop e la sua icona sono obbligatori al primo livello: senza, appimagetool si rifiuta di impacchettare.
+- usr/ e' un piccolo filesystem root: binario, librerie incluse, file desktop, icone, metainfo.
+Due ricette, entrambe in packaging/appimage/build-appimage.sh --method {linuxdeploy,appimagetool}:
+- appimagetool a mano: assembliamo noi l'AppDir (install CMake, .desktop, icona, symlink AppRun). appimagetool comprime l'albero e ci mette davanti il runtime, niente di piu'. Non guarda mai le dipendenze: se il binario richiede una libreria che sull'host non c'e', nessuno ti avvisa.
+- linuxdeploy (default dello script): percorre l'albero DT_NEEDED, copia in usr/lib ogni libreria che non e' nella excludelist di AppImage, imposta RUNPATH=$ORIGIN/../lib con patchelf, fa lo strip e crea AppRun. Poi appimagetool impacchetta il risultato.
+- linuxdeploy e appimagetool sono a loro volta AppImage. Le immagini builder li contengono gia' estratti, quindi girano senza FUSE; lo script non scarica nulla e, se manca un tool, fallisce con le istruzioni per installarlo.
+Messaggio chiave: "autocontenuto" non e' una proprieta' del formato. E' un lavoro di packaging, e la domanda successiva e': cosa va dentro la scatola?
+
+--
+
+## Cucinare un AppImage: Passo per Passo
+
+```bash
+# 1. Build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+```
+
+```bash
+# 2. Stage the AppDir
+DESTDIR=AppDir cmake --install build --component ocio --prefix /usr
+```
+<!-- .element: class="fragment" -->
+
+```bash
+# 3. Bundle what the host is not expected to have
+linuxdeploy --appdir AppDir --executable AppDir/usr/bin/ocio \
+    --desktop-file ocio.desktop --icon-file ocio.png
+```
+<!-- .element: class="fragment" -->
+
+```bash
+# 4. Squash the AppDir and prepend the runtime
+appimagetool --runtime-file /usr/lib/runtime-x86_64 AppDir ocio-x86_64.AppImage
+```
+<!-- .element: class="fragment" -->
+
+Note:
+I quattro passi che packaging/appimage/build-appimage.sh esegue con il default --method linuxdeploy:
+1. Compila: una normale build CMake Release. Ancora niente di specifico per AppImage.
+2. Prepara: installa solo il componente ocio (l'install di default contiene anche i file di sviluppo di raylib) dentro AppDir, con --prefix /usr perche' linuxdeploy si aspetta il layout usr/. Si ottiene usr/bin/ocio piu' file desktop, icone e metainfo.
+3. Includi: linuxdeploy legge DT_NEEDED in modo ricorsivo, copia in usr/lib ogni libreria che non e' nella excludelist, imposta RUNPATH=$ORIGIN/../lib, fa lo strip e crea AppRun e i link al .desktop e all'icona al primo livello. Per la nostra build di default non copia niente: tutto cio' che serve a ocio e' nella excludelist (slide successiva).
+4. Impacchetta: appimagetool trasforma l'AppDir in un'immagine SquashFS e ci mette davanti il runtime type2, lo stub ELF con il magic AI\x02 della slide su EI_PAD. Passiamo il runtime in modo esplicito, altrimenti appimagetool lo scarica a ogni build.
+La ricetta a mano (--method appimagetool) salta il passo 3: AppRun, il .desktop e l'icona li mettiamo noi, e nessuno controlla le librerie.
+I tre strumenti (linuxdeploy, appimagetool, runtime) sono gia' installati nelle immagini builder; linuxdeploy e appimagetool sono gia' estratti, quindi girano senza FUSE.
+
+--
+
+## La Scatola Ha un Bordo
+
+| Dentro la scatola | Fuori: l'host |
+|---|---|
+| Binario e asset dell'app | glibc: `libc`, `libm`, `ld.so` |
+| Librerie portate dall'app | GL: `libOpenGL`, `libGLX`, `libGLdispatch` |
+| | X11 / xcb, `libdrm`, ALSA |
+
+Il confine è la **excludelist** di AppImage: librerie che si assume siano presenti su ogni desktop.
+<!-- .element: class="fragment" -->
+
+```text
+$ ./ocio.AppImage            # vanilla Tumbleweed container
+/ocio.AppImage: error while loading shared libraries: libOpenGL.so.0
+```
+<!-- .element: class="fragment" -->
+
+<p class="fragment text-info">
+Scatola giusta, host sbagliato: un container nudo non è un desktop.
+</p>
+
+Note:
+La excludelist (pkg2appimage/excludelist, applicata da linuxdeploy) elenca le librerie "we will assume to be present on the host system and hence should NOT be bundled inside AppImages". Contiene glibc, tutto lo stack GL (libOpenGL, libGLX, libGLdispatch, libGL, libEGL, libdrm), X11/xcb e ALSA.
+Perche' GL deve restare fuori: stesso argomento della slide Build vs. Runtime. I driver GPU sono dispatcher dinamici che devono corrispondere alla scheda dell'host; libglvnd carica libGLX_mesa o libGLX_nvidia dall'host. Una Mesa inclusa funziona in un container e si rompe con il driver proprietario NVIDIA o con una GPU piu' recente della Mesa inclusa.
+Il nostro ocio: raylib e' statica, e DT_NEEDED contiene solo libm, libOpenGL.so.0, libGLX.so.0, libc. Tutte e quattro sono nella excludelist. Quindi il nostro AppImage e' corretto secondo le regole del formato stesso: linuxdeploy non trova niente da includere.
+L'errore nel container e' il bordo della scatola, non un difetto della scatola. Installare libglvnd nel container ricrea il sistema base desktop che AppImage presuppone; su un desktop vero c'e' gia'.
+Il limite: AppImage non dichiara mai questo sistema base. La excludelist e' "a working document". Flatpak trasforma la stessa idea in un runtime esplicito e versionato (ponte verso Flatpak).
+Nota a margine: l'AppImage compilato su Debian parte e stampa --version nello stesso container. Non e' una scatola migliore: --as-needed ha tolto GL da DT_NEEDED, quindi fallisce piu' tardi, quando GLFW fa dlopen() di Xlib.
+
+--
+
+## Cucinato Male, Cucinato Bene
+
+```text
+$ RAYLIB_SHARED=ON build-appimage.sh --method appimagetool
+$ ./ocio-x86_64.AppImage
+... error while loading shared libraries: libraylib.so.550
+```
+
+```text
+$ RAYLIB_SHARED=ON build-appimage.sh --method linuxdeploy
+$ ls AppDir/usr/lib
+libraylib.so.550
+$ readelf -d AppDir/usr/bin/ocio | grep RUNPATH
+ (RUNPATH)  Library runpath: [$ORIGIN/../lib]
+```
+<!-- .element: class="fragment" -->
+
+<p class="fragment text-danger">
+<code>zypper in raylib</code> nasconderebbe il bug, e tradirebbe l'idea stessa della scatola.
+</p>
+
+Note:
+Ora un vero errore di packaging, sopra la linea della excludelist:
+- Compiliamo raylib come libreria condivisa. ocio ora richiede libraylib, che non e' nella excludelist: deve stare nella scatola.
+- Male: la ricetta a mano non ce la mette (CMake installa libraylib.so con il componente raylib-devel, non con ocio). Il binario nella build tree parte, perche' la build RPATH di CMake punta alla directory di build: "sul mio computer va", ancora una volta. L'AppImage fallisce sul desktop.
+- Bene: linuxdeploy copia libraylib in usr/lib e imposta RUNPATH=$ORIGIN/../lib, cosi' ld.so la trova dentro il mount. libOpenGL e libGLX restano fuori, come devono.
+- Non e' una soluzione: installare raylib con il package manager della distro. Riporta l'AppImage a un binario che dipende dalla distro. Su Tumbleweed non funzionerebbe nemmeno: la distro fornisce raylib 6.0, ocio e' compilato contro la 5.5.
+Morale: la soluzione per una scatola rotta sta dentro la scatola, non sull'host.
+DA VERIFICARE prima del talk: soname esatto, testo dell'errore e RUNPATH vs RPATH nell'output di linuxdeploy.
 
 ---
 

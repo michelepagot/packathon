@@ -13,10 +13,10 @@ There is no image of ours that contains `ocio`.
 
 | Distro | Type | Published on GHCR | Local tag ([if you build it](#using-a-local-build)) | Purpose / Package set |
 |---|---|---|---|---|
-| **openSUSE** Tumbleweed | **Demo** | `ghcr.io/michelepagot/packathon/opensuse-demo` | `localhost/packathon-opensuse:demo` | Clean runtime with demo ergonomics (`fzf`, `Ctrl-R`, pre-cooked history, cyan prompt). Zero compilers or graphics libraries. |
 | **openSUSE** Tumbleweed | **Builder** | `ghcr.io/michelepagot/packathon/opensuse-builder` | `localhost/packathon-opensuse:builder` | All builds (`FETCH`, `LOCAL`, `SYSTEM`), CPack RPM, manual `rpmbuild`, AppImage, Flatpak |
-| **Debian** bookworm | **Demo** | `ghcr.io/michelepagot/packathon/debian-demo` | `localhost/packathon-debian:demo` | Clean runtime with demo ergonomics (`fzf`, `Ctrl-R`, pre-cooked history, blue prompt). Zero compilers or graphics libraries. |
+| **openSUSE** Tumbleweed | **Demo** | `ghcr.io/michelepagot/packathon/opensuse-demo` | `localhost/packathon-opensuse:demo` | Clean runtime with demo ergonomics (`fzf`, `Ctrl-R`, pre-cooked history, cyan prompt). Zero compilers or graphics libraries. |
 | **Debian** bookworm | **Builder** | `ghcr.io/michelepagot/packathon/debian-builder` | `localhost/packathon-debian:builder` | General builds (`FETCH`, `LOCAL`), CPack DEB, `build-deb.sh`, AppImage, Flatpak |
+| **Debian** bookworm | **Demo** | `ghcr.io/michelepagot/packathon/debian-demo` | `localhost/packathon-debian:demo` | Clean runtime with demo ergonomics (`fzf`, `Ctrl-R`, pre-cooked history, blue prompt). Zero compilers or graphics libraries. |
 
 *(For complete package manifests, stage definitions, and toolchain configurations, see [`Containerfile.debian`](../packaging/containers/Containerfile.debian) and [`Containerfile.opensuse`](../packaging/containers/Containerfile.opensuse).)*
 
@@ -348,6 +348,47 @@ Test the resulting single-file `.AppImage` in untouched base distribution contai
     /ocio.AppImage --appimage-extract-and-run --version
   ```
   *(Output: `AppRun 0.1.0`)*
+
+### 3. FUSE in a Container: Extract or Mount
+Without extra flags, an AppImage cannot mount itself in a container. Podman does not pass `/dev/fuse` by default, and the vanilla images have no `fusermount3`:
+```text
+Error: No suitable fusermount binary found on the $PATH
+fuse: device not found, try 'modprobe fuse' first
+
+Cannot mount AppImage, please check your FUSE setup.
+...
+open dir error: No such file or directory
+```
+There are two solutions:
+
+- **Extract and run (no FUSE, no image change).** The runtime unpacks the payload to `/tmp/appimage_extracted_*` and runs `AppRun` from there. Use the command line flag or the environment variable. They do the same thing:
+  ```bash
+  podman run --rm -v "$PWD/dist/ocio-x86_64.AppImage:/ocio.AppImage:ro,Z" \
+    ghcr.io/michelepagot/packathon/opensuse-demo:latest \
+    /ocio.AppImage --appimage-extract-and-run --version
+
+  podman run --rm -e APPIMAGE_EXTRACT_AND_RUN=1 \
+    -v "$PWD/dist/ocio-x86_64.AppImage:/ocio.AppImage:ro,Z" \
+    ghcr.io/michelepagot/packathon/opensuse-demo:latest \
+    /ocio.AppImage --version
+  ```
+  *(Output: `AppRun 0.1.0`)*
+
+- **Real FUSE mount (as on a desktop).** Pass the device and the capability to mount it, and install `fuse3` (it provides `fusermount3`) in the container:
+  ```bash
+  podman run --rm -it --device /dev/fuse --cap-add SYS_ADMIN \
+    -v "$PWD/dist/ocio-x86_64.AppImage:/ocio.AppImage:ro,Z" \
+    ghcr.io/michelepagot/packathon/opensuse-demo:latest bash
+  # inside:
+  zypper in -y --no-recommends fuse3
+  /ocio.AppImage --version          # ocio.AppImage 0.1.0, mounted on /tmp/.mount_ocio.A*
+  ```
+  Both flags are necessary. Without `/dev/fuse` you get `fuse: device not found`. Without `SYS_ADMIN`, `fusermount3: mount failed: Operation not permitted`. Without `fuse3`, the runtime prints `No suitable fusermount binary found` and then mounts directly, because it runs as root with `SYS_ADMIN`.
+
+Both solutions only remove the FUSE problem. An AppImage built on Tumbleweed records `libOpenGL.so.0` and `libGLX.so.0` and does not bundle them, so in vanilla Tumbleweed it stops next with `error while loading shared libraries: libOpenGL.so.0` until you install `libglvnd` (walkthrough step 2b). The Debian-built AppImage of step 1 records only `libc` and `libm`, so `--version` works and the failure comes later, when GLFW loads Xlib (as in walkthrough step 2). To see the window, add the display flags of [Running the GUI from a Container](#running-the-gui-from-a-container).
+
+> [!NOTE]
+> Tested with rootless Podman, on a host without SELinux or AppArmor. With SELinux or AppArmor active, the FUSE mount can also need `--security-opt label=disable` or `--security-opt apparmor=unconfined`.
 
 ---
 
