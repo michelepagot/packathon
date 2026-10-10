@@ -823,7 +823,7 @@ static-pie linked
 
 | `00..03` | `04..07` | `08..0A` | `0B..0F` |
 |:---:|:---:|:---:|:---:|
-| `\x7fELF` | `x86_64 / System V` | **`AI\x02`** | `padding (0x00)` |
+| `\x7fELF` | `x86_64/SystemV` | **`AI\x02`** | `padding (0x00)` |
 <!-- .element: class="fragment" -->
 
 ```text
@@ -847,6 +847,7 @@ Dissecting the AppImage binary header:
   2. Instant detection: desktop indexers, file managers, app managers and file(1) don't need to mount or scan the multi-megabyte SquashFS payload: reading 11 bytes gives instant identification, in O(1) time.
   3. Format versioning: generations are cleanly versioned, AI\x01 for legacy Type 1 (ISO 9660) vs AI\x02 for modern Type 2 (SquashFS + FUSE).
 - The emulation caveat: Native kernels ignore EI_PAD, but container emulation (QEMU-user binfmt_misc) can trip on non-standard padding with ENOEXEC ("Exec format error"). This is why native ARM64 runners are required for reliable multi-arch builds.
+- Reading the table: the "x86_64 / System V" column (bytes 04..07) is a simplification. Byte 7 (e_ident[7]) is the OS/ABI field: 01 = System V, the standard Linux ABI. The actual CPU architecture (e_machine = 0x3e, x86-64) lives further in the ELF header at offset 18, visible in the 0016: line as 3e00. The 03 at byte 16 (e_abi) is a finer-grained ABI version field, mostly unused on Linux.
 
 --
 
@@ -985,6 +986,8 @@ Note:
 The four steps that packaging/appimage/build-appimage.sh runs with the default --method linuxdeploy:
 1. Build: a normal CMake Release build. Nothing AppImage-specific yet.
 2. Stage: install only the ocio component (the default install also has raylib's dev files) into AppDir, with --prefix /usr because linuxdeploy expects the usr/ layout. This gives usr/bin/ocio plus the desktop file, icons and metainfo.
+   DESTDIR vs --prefix: DESTDIR=AppDir is a real, relative staging root in the current working directory (the POSIX DESTDIR convention, same as `make install DESTDIR=...` or rpmbuild's BUILDROOT). --prefix /usr is a virtual prefix: CMake computes every install path as DESTDIR + prefix, so files land in ./AppDir/usr/... without ever touching the real /usr on the build machine. The two variables are independent: DESTDIR is where the tree is physically written, --prefix is the layout the files pretend to have inside it.
+   Why --prefix /usr specifically: linuxdeploy and the AppImage format expect the FHS layout inside the AppDir (usr/bin, usr/lib, usr/share). With --prefix / and DESTDIR=AppDir you would get AppDir/bin/ocio (no usr/), which linuxdeploy would not recognize. --prefix /usr + DESTDIR=AppDir produces exactly the usr/ subtree the format requires, mirroring how rpmbuild stages into BUILDROOT and dpkg-buildpackage stages into a fakeroot.
 3. Bundle: linuxdeploy reads DT_NEEDED recursively, copies into usr/lib every library that is not on the excludelist, sets RUNPATH=$ORIGIN/../lib, strips, and creates AppRun and the top-level .desktop and icon links. For our default build it copies nothing: everything ocio needs is on the excludelist (next slide).
 4. Pack: appimagetool turns the AppDir into a SquashFS image and prepends the type2 runtime, the ELF stub with the AI\x02 magic from the EI_PAD slide. We pass the runtime file explicitly, otherwise appimagetool downloads it at every build.
 The hand recipe (--method appimagetool) skips step 3: we place AppRun, the .desktop file and the icon ourselves, and nobody checks the libraries.
@@ -994,11 +997,11 @@ All three tools (linuxdeploy, appimagetool, runtime) come pre-installed in the b
 
 ## The Box Has an Edge
 
-| Inside the box | Outside: the host |
-|---|---|
-| App binary &amp; assets | glibc: `libc`, `libm`, `ld.so` |
-| Libraries the app brings | GL: `libOpenGL`, `libGLX`, `libGLdispatch` |
-| | X11 / xcb, `libdrm`, ALSA |
+| Category | Inside the box | Outside: the host |
+|---|---|---|
+| **Binary** | `ocio` + assets | glibc: `libc`, `libm`, `ld.so` |
+| **GL** | Raylib (static) | `libOpenGL`, `libGLX`, `libGLdispatch` |
+| **Display / Audio** | — | X11 / xcb, `libdrm`, ALSA |
 
 The line is the AppImage **excludelist**: libraries assumed present on every desktop.
 <!-- .element: class="fragment" -->
@@ -1014,12 +1017,31 @@ Correct box, wrong host: a bare container is not a desktop.
 </p>
 
 Note:
-The excludelist (pkg2appimage/excludelist, applied by linuxdeploy) lists the libraries "we will assume to be present on the host system and hence should NOT be bundled inside AppImages". It contains glibc, the whole GL stack (libOpenGL, libGLX, libGLdispatch, libGL, libEGL, libdrm), X11/xcb and ALSA.
-Why GL must stay outside: same argument as the Build vs. Runtime slide. GPU drivers are dynamic dispatchers that must match the host card; libglvnd loads libGLX_mesa or libGLX_nvidia from the host. A bundled Mesa works in a container and breaks on the NVIDIA proprietary driver or on a GPU newer than the bundled Mesa.
-Our ocio: raylib is static, and DT_NEEDED is only libm, libOpenGL.so.0, libGLX.so.0, libc. All four are on the excludelist. So our AppImage is correct by the format's own rules: linuxdeploy finds nothing to bundle.
-The error in the container is the edge of the box, not a bug in it. Installing libglvnd in the container recreates the desktop base system that AppImage assumes; on a real desktop it is already there.
-The catch: AppImage never declares that base system. The excludelist is "a working document". Flatpak turns the same idea into an explicit, versioned runtime (bridge to Flatpak).
-Side note: the AppImage built on Debian starts and prints --version in the same container. It is not a better box: --as-needed dropped GL from DT_NEEDED, so it fails later, when GLFW dlopen()s Xlib.
+What the excludelist is:
+- pkg2appimage/excludelist, applied by linuxdeploy: libraries "assumed present on the host system and hence should NOT be bundled".
+- Contents: glibc, the whole GL stack (libOpenGL, libGLX, libGLdispatch, libGL, libEGL, libdrm), X11/xcb, ALSA.
+
+Why GL stays outside (same argument as Build vs. Runtime):
+- GPU drivers are dynamic dispatchers that must match the host card.
+- libglvnd loads libGLX_mesa or libGLX_nvidia from the host.
+- A bundled Mesa works in a container, breaks on the NVIDIA proprietary driver or on a GPU newer than the bundled Mesa.
+
+Our ocio:
+- raylib is static; DT_NEEDED is only libm, libOpenGL.so.0, libGLX.so.0, libc.
+- All four are on the excludelist, so linuxdeploy finds nothing to bundle.
+- The AppImage is correct by the format's own rules.
+
+The error in the container:
+- It is the edge of the box, not a bug in it.
+- Installing libglvnd in the container recreates the desktop base system AppImage assumes; on a real desktop it is already there.
+
+The catch:
+- AppImage never declares that base system. The excludelist is "a working document".
+- Flatpak turns the same idea into an explicit, versioned runtime (bridge to Flatpak).
+
+Side note:
+- The AppImage built on Debian starts and prints --version in the same container.
+- Not a better box: --as-needed dropped GL from DT_NEEDED, so it fails later, when GLFW dlopen()s Xlib.
 
 --
 
@@ -1055,6 +1077,23 @@ TO VERIFY before the talk: the exact soname, the error text and RUNPATH vs RPATH
 
 ---
 
+## Flatpak: Universal Desktop Sandbox
+
+* Created in 2015 by **Alexander Larsson** at Red Hat (originally *xdg-app*, rebranded in 2016).
+* Designed to solve Linux desktop fragmentation by decoupling applications from host distributions.
+
+Note:
+Introducing Flatpak:
+- Origin: Created in 2015 by Alexander Larsson at Red Hat under the working title xdg-app, officially rebranded to Flatpak in 2016. Larsson was a long-time core GNOME contributor.
+- The Problem: Linux desktop fragmentation. Developers faced dozens of distributions, differing glibc baselines, and disparate release cycles. Upstream updates frequently broke against host shared libraries, while LTS releases lagged behind.
+- The Vision: Decouple the application from the host operating system. Build once and run anywhere (Ubuntu, Fedora, openSUSE, Arch) without relying on distribution packaging teams.
+- Three Architectural Pillars:
+  1. Runtime & Application Split: Applications run against versioned runtimes (org.freedesktop.Platform, GNOME, KDE) rather than host /usr.
+  2. OSTree Storage: "Git for binaries" providing content-addressed storage, hardlink deduplication across apps and runtimes, and atomic rollback/updates.
+  3. Unprivileged Sandboxing: Bubblewrap (bwrap) isolation using kernel namespaces, cgroups, and seccomp, mediated via XDG Desktop Portals.
+
+--
+
 ## Flatpak: Sandboxed Desktop Runtime
 
 <div class="grid-2">
@@ -1062,8 +1101,8 @@ TO VERIFY before the talk: the exact soname, the error text and RUNPATH vs RPATH
 
 ### What It Is
 * Universal sandboxed desktop standard
-* *Alexander Larsson* (2015 *xdg-app*, 2016)
-* Backed by the Flathub ecosystem
+* Shared, versioned platform runtimes
+* Content-addressed storage via OSTree
 
 </div>
 <div>
@@ -1083,9 +1122,9 @@ TO VERIFY before the talk: the exact soname, the error text and RUNPATH vs RPATH
 
 Note:
 Introduce Flatpak via the 4-lens framework:
-1. What it is: Created in 2015 by Alexander Larsson at Red Hat (originally xdg-app). Has become the de-facto standard for cross-distro desktop apps, centered around Flathub.
+1. What it is: An application distribution format built around a clean split between application binaries and shared platform runtimes, backed by OSTree storage.
 2. Superpower: Complete decoupling. The application never sees host /usr. Instead, it runs inside an unprivileged Bubblewrap container with namespaces and seccomp filtering.
-3. Common workflow: Install from remotes (Flathub), run, inspect the interior environment with --command=sh, and dynamically tweak permissions with flatpak override.
+3. Common workflow: Install from configured remotes, run, inspect the interior environment with --command=sh, and dynamically tweak permissions with flatpak override.
 4. The Catch: Because the sandbox is isolated by default, every access to the outside world must be explicitly declared.
 
 --
