@@ -362,13 +362,13 @@ ocio-0.1.0-1.x86_64.rpm: RPM v3.0 bin i386/x86_64
 <!-- .element: class="fragment" -->
 
 ```text
-$ xxd -l 96 -d dist/ocio-0.1.0-1.x86_64.rpm
-00000000: edab eedb 0300 0000 0001 6f63 696f 2d30  ..........ocio-0
-00000016: 2e31 2e30 2d31 0000 0000 0000 0000 0000  .1.0-1..........
-00000032: 0000 0000 0000 0000 0000 0000 0000 0000  ................
-00000048: 0000 0000 0000 0000 0000 0000 0000 0000  ................
-00000064: 0000 0000 0000 0000 0000 0000 0001 0005  ................
-00000080: 0000 0000 0000 0000 0000 0000 0000 0000  ................
+$ xxd -l 96 -d ocio-0.1.0-1.x86_64.rpm
+0000: edab eedb 0300 0000 0001 6f63 696f 2d30  ..........ocio-0
+0016: 2e31 2e30 2d31 0000 0000 0000 0000 0000  .1.0-1..........
+0032: 0000 0000 0000 0000 0000 0000 0000 0000  ................
+0048: 0000 0000 0000 0000 0000 0000 0000 0000  ................
+0064: 0000 0000 0000 0000 0000 0000 0001 0005  ................
+0080: 0000 0000 0000 0000 0000 0000 0000 0000  ................
 ```
 <!-- .element: class="fragment" style="font-size: 0.48em; line-height: 1.2;" -->
 
@@ -829,15 +829,96 @@ Ora andiamo a vedere cosa c'e' fisicamente dentro il file AppImage sul disco.
 
 --
 
-## Dentro un AppImage: Stub e SquashFS
-
-* **Stub runtime ELF**: piccolo eseguibile posto in testa al file
-* **Filesystem SquashFS**: payload compresso accodato direttamente allo stub
-* **Mount ed esecuzione**: FUSE monta in `/tmp/.mount_XXXXXX` ed esegue `AppRun`
+## Dentro AppImage: Il Trucco di `EI_PAD`
 
 ```text
-$ ./ocio-x86_64.AppImage --appimage-extract
-$ ls -1 squashfs-root
+$ file ocio-x86_64.AppImage
+
+ocio-x86_64.AppImage: ELF 64-bit LSB pie executable,
+static-pie linked
+```
+<!-- .element: class="fragment" -->
+
+| `00..03` | `04..07` | `08..0A` | `0B..0F` |
+|:---:|:---:|:---:|:---:|
+| `\x7fELF` | `x86_64 / System V` | **`AI\x02`** | `padding (0x00)` |
+<!-- .element: class="fragment" -->
+
+```text
+$ xxd -l 96 -d ocio-x86_64.AppImage
+0000: 7f45 4c46 0201 0100 4149 0200 0000 0000  .ELF....AI......
+0016: 0300 3e00 0100 0000 87ae 0200 0000 0000  ..>.............
+0032: 4000 0000 0000 0000 7862 0e00 0000 0000  @.......xb......
+0048: 0000 0000 4000 3800 0a00 4000 1e00 1d00  ....@.8...@.....
+0064: 0100 0000 0400 0000 0000 0000 0000 0000  ................
+0080: 0000 0000 0000 0000 0000 0000 0000 0000  ................
+```
+<!-- .element: class="fragment" style="font-size: 0.48em; line-height: 1.2;" -->
+
+Note:
+Dissezione dell'header binario di AppImage:
+- Nel capitolo sui Fondamenti abbiamo visto che ogni binario ELF comincia con l'array di 16 byte e_ident.
+- La specifica ELF definisce i byte da 8 a 15 come EI_PAD: padding riservato per future espansioni dell'ABI, convenzionalmente azzerato.
+- AppImage Type 2 sovrascrive i byte 8, 9 e 10 con i caratteri ASCII 'A', 'I' e il byte 0x02.
+- Perche' e' una soluzione geniale:
+  1. Zero penalita' di esecuzione: il loader del kernel verifica solo i primi 4 byte (\x7fELF) e, come ld.so, ignora EI_PAD, lasciando il file un eseguibile perfettamente valido.
+  2. Riconoscimento istantaneo: file manager, indicizzatori desktop, gestori app e file(1) non devono montare o scansionare i megabyte del payload SquashFS: leggere 11 byte identifica subito il formato, in tempo O(1).
+  3. Versionamento del formato: le generazioni sono distinte chiaramente, AI\x01 per il vecchio Type 1 (ISO 9660) e AI\x02 per il moderno Type 2 (SquashFS + FUSE).
+- Il caveat dell'emulazione: I kernel nativi ignorano EI_PAD, ma i layer di emulazione container (QEMU-user binfmt_misc) possono inciampare su byte di padding non standard restituendo ENOEXEC ("Exec format error"). Ecco perche' i runner ARM64 nativi sono necessari per build multi-arch affidabili.
+
+--
+
+## Dentro un AppImage: Stub &amp; SquashFS
+
+* **Stub runtime ELF**: launcher static-pie all'offset 0 del file (944 KiB)
+* **Payload SquashFS**: filesystem compresso accodato all'offset 944632 (461 KiB)
+* **Anatomia in due parti**: runtime stub + albero applicativo compresso
+
+```text
+$ ocio-x86_64.AppImage --appimage-offset
+
+944632
+```
+<!-- .element: class="fragment" -->
+
+```text
+$ unsquashfs -s -offset 944632 ocio-x86_64.AppImage
+
+Found a valid SQUASHFS
+4:0 superblock on ocio-x86_64.AppImage
+Filesystem size 461732 bytes,
+compression zstd
+```
+<!-- .element: class="fragment" -->
+
+Note:
+Meccanica di basso livello del binario AppImage:
+- Un AppImage non e' un archivio con un installer. E' un binario composito formato da uno stub eseguibile ELF a cui e' accodato un filesystem SquashFS compresso.
+- Dimostrare la giunzione: L'opzione di runtime --appimage-offset stampa l'esatto offset in byte dove inizia il payload SquashFS (944632).
+- Lo stub (byte da 0 a 944631): Un eseguibile static-pie (~944 KiB) compilato con musl libc, libfuse3 e squashfuse.
+- Il payload (dal byte 944632 in poi): Un filesystem SquashFS 4.0 puro (~461 KiB, compresso con zstd).
+- Verifica forense: unsquashfs legge il superblock direttamente dall'offset del file senza necessitare di mount o privilegi di root.
+- Ingombro totale del file: 1.40 MB (entra nel floppy disk da 1.44 MB usato come oggetto di scena).
+
+--
+
+## Dentro AppImage: Ciclo di Vita del Mount
+
+* **Avvio**: il runtime intercetta `execve()` &rarr; monta via FUSE in `/tmp/.mount_*`
+* **Entry point**: esegue `AppRun` &rarr; imposta l'ambiente e avvia l'applicazione
+* **Ripristino**: smonta all'uscita del processo &rarr; effimero, zero tracce sull'host
+
+```text
+$ ocio-x86_64.AppImage --appimage-mount
+/tmp/.mount_ocio-xApLEba
+```
+<!-- .element: class="fragment" -->
+
+```text
+$ df -h | grep /tmp/.mount
+ocio-x86_64.AppImage  451K  451K     0 100% /tmp/.mount_ocio-xApLEba
+
+$ ls -1 /tmp/.mount_ocio-xApLEba
 AppRun
 ocio.desktop
 ocio.png
@@ -846,44 +927,17 @@ usr
 <!-- .element: class="fragment" -->
 
 Note:
-Meccanica interna di AppImage:
-- Un file AppImage e' un binario ELF seguito immediatamente da un filesystem SquashFS compresso.
-- All'avvio, lo stub ELF intercetta l'esecuzione, monta il filesystem interno in una directory temporanea in /tmp tramite FUSE ed esegue lo script AppRun all'interno del mount.
-- AppRun imposta LD_LIBRARY_PATH e lancia l'applicazione.
-- Alla chiusura dell'app, il mount FUSE viene smontato e rimosso.
-- L'opzione --appimage-extract dimostra come all'interno vi sia una root di filesystem completa e autosufficiente.
-FUSE in un container (la demo gira in podman):
-- Podman non passa /dev/fuse e l'immagine vanilla non ha fusermount3. Un semplice ./ocio.AppImage fallisce: "fuse: device not found ... Cannot mount AppImage, please check your FUSE setup".
-- Soluzione 1, senza FUSE: --appimage-extract-and-run (oppure APPIMAGE_EXTRACT_AND_RUN=1) estrae in /tmp/appimage_extracted_* ed esegue AppRun da li'. Nessuna modifica all'immagine, nessun privilegio extra.
-- Soluzione 2, mount reale come su un desktop: podman run --device /dev/fuse --cap-add SYS_ADMIN, piu' zypper in fuse3 (fusermount3) nel container. Il mount compare in /tmp/.mount_ocio.A*.
-- In entrambi i casi il passo successivo e' libOpenGL.so.0: l'AppImage non include lo stack GL, usa quello dell'host.
-
---
-
-## Dentro AppImage: Il Trucco di EI_PAD
-
-```text
-$ hexdump -C -n 16 ocio-x86_64.AppImage
-00000000  7f 45 4c 46 02 01 01 00  41 49 02 00 00 00 00 00  |.ELF....AI......|
-```
-
-| Byte Range | Field | Value | Purpose |
-|:---:|:---:|:---:|:---|
-| `00..03` | `EI_MAG` | `\x7fELF` | Firma standard ELF magic |
-| `04..07` | Architettura | `02 01 01 00` | 64-bit, little-endian, System V ABI |
-| **`08..0A`** | **`EI_PAD`** | **`41 49 02`** | **`AI\x02` (magic AppImage Type 2)** |
-| `0B..0F` | `EI_PAD` | `00 00 00...` | Byte di padding rimanenti a zero |
-
-Note:
-Dissezione dell'header binario di AppImage:
-- Nella Slide 9 abbiamo visto che ogni file ELF comincia con l'array di 16 byte e_ident.
-- La specifica ELF riserva i byte da 8 a 15 come EI_PAD: byte di padding per future espansioni, normalmente lasciati a zero.
-- AppImage Type 2 sovrascrive i byte 8, 9 e 10 con i caratteri ASCII 'A', 'I' e il byte 0x02.
-- Perché è una soluzione brillante:
-  1. Zero penalita' all'avvio: il kernel verifica unicamente i primi 4 byte (\x7fELF) e, come ld.so, ignora EI_PAD, lasciando il file un eseguibile perfettamente valido.
-  2. Identificazione immediata: gestori desktop, indicizzatori, app manager e file(1) non devono montare o scansionare i megabyte del payload SquashFS: leggere 11 byte identifica subito il tipo di file, in tempo O(1).
-  3. Versionamento del formato: distingue in modo pulito le generazioni, AI\x01 per il Type 1 (ISO 9660) e AI\x02 per il Type 2 (SquashFS + FUSE).
-- Il limite dell'emulazione: I kernel nativi ignorano EI_PAD, ma i layer di emulazione container (QEMU-user binfmt_misc) possono fallire con ENOEXEC ("Exec format error") quando trovano padding non standard. Per questo i runner ARM64 nativi sono essenziali per build multi-arch affidabili.
+Il ciclo di vita del mount a runtime:
+- Avvio e intercettazione: All'esecuzione, lo stub runtime ELF intercetta il controllo prima dell'avvio dell'applicazione. Crea una directory temporanea /tmp/.mount_XXXXXX e usa FUSE (squashfuse + libfuse3) per montare il payload SquashFS incorporato.
+- Esecuzione: Il controllo passa allo script AppRun posto alla radice del mount, che configura le variabili d'ambiente (come PATH e LD_LIBRARY_PATH) e invoca usr/bin/ocio.
+- Chiusura: Quando l'applicazione termina, lo stub runtime smonta il filesystem e rimuove il mount point.
+- La tecnica di ispezione:
+  Invece di tentare di catturare la directory effimera con loop di comandi watch, l'opzione --appimage-mount monta il filesystem, stampa il percorso e resta in attesa di Ctrl+C.
+  In un'altra shell, df e ls mostrano la struttura FHS montata (usr/bin, usr/share, AppRun).
+- Il requisito FUSE e il fallback:
+  AppImage dipende dal supporto FUSE dell'host (/dev/fuse e fusermount3).
+  In ambienti privi di FUSE (container, Docker o installazioni minimali), l'avvio fallisce.
+  Il fallback ufficiale: --appimage-extract-and-run (oppure APPIMAGE_EXTRACT_AND_RUN=1) estrae in /tmp ed esegue senza FUSE.
 
 --
 
