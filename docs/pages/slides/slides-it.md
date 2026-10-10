@@ -841,7 +841,7 @@ static-pie linked
 
 | `00..03` | `04..07` | `08..0A` | `0B..0F` |
 |:---:|:---:|:---:|:---:|
-| `\x7fELF` | `x86_64 / System V` | **`AI\x02`** | `padding (0x00)` |
+| `\x7fELF` | `x86_64/SystemV` | **`AI\x02`** | `padding (0x00)` |
 <!-- .element: class="fragment" -->
 
 ```text
@@ -865,6 +865,7 @@ Dissezione dell'header binario di AppImage:
   2. Riconoscimento istantaneo: file manager, indicizzatori desktop, gestori app e file(1) non devono montare o scansionare i megabyte del payload SquashFS: leggere 11 byte identifica subito il formato, in tempo O(1).
   3. Versionamento del formato: le generazioni sono distinte chiaramente, AI\x01 per il vecchio Type 1 (ISO 9660) e AI\x02 per il moderno Type 2 (SquashFS + FUSE).
 - Il caveat dell'emulazione: I kernel nativi ignorano EI_PAD, ma i layer di emulazione container (QEMU-user binfmt_misc) possono inciampare su byte di padding non standard restituendo ENOEXEC ("Exec format error"). Ecco perche' i runner ARM64 nativi sono necessari per build multi-arch affidabili.
+- Lettura della tabella: la colonna "x86_64 / System V" (byte 04..07) e' una semplificazione. Il byte 7 (e_ident[7]) e' il campo OS/ABI: 01 = System V, l'ABI standard di Linux. L'architettura CPU reale (e_machine = 0x3e, x86-64) si trova piu' avanti nell'header ELF all'offset 18, visibile nella riga 0016: come 3e00. Lo 03 al byte 16 (e_abi) e' un campo di versione ABI piu' fine, quasi mai usato su Linux.
 
 --
 
@@ -1003,6 +1004,8 @@ Note:
 I quattro passi che packaging/appimage/build-appimage.sh esegue con il default --method linuxdeploy:
 1. Compila: una normale build CMake Release. Ancora niente di specifico per AppImage.
 2. Prepara: installa solo il componente ocio (l'install di default contiene anche i file di sviluppo di raylib) dentro AppDir, con --prefix /usr perche' linuxdeploy si aspetta il layout usr/. Si ottiene usr/bin/ocio piu' file desktop, icone e metainfo.
+   DESTDIR vs --prefix: DESTDIR=AppDir e' una root di staging reale, relativa alla directory di lavoro corrente (la convenzione POSIX DESTDIR, la stessa di `make install DESTDIR=...` o di BUILDROOT di rpmbuild). --prefix /usr e' un prefisso virtuale: CMake calcola ogni percorso di installazione come DESTDIR + prefix, quindi i file finiscono in ./AppDir/usr/... senza mai toccare il /usr reale della macchina di build. Le due variabili sono indipendenti: DESTDIR e' dove l'albero viene fisicamente scritto, --prefix e' il layout che i file fingono di avere dentro.
+   Perche' --prefix /usr in particolare: linuxdeploy e il formato AppImage si aspettano il layout FHS dentro l'AppDir (usr/bin, usr/lib, usr/share). Con --prefix / e DESTDIR=AppDir si otterrebbe AppDir/bin/ocio (senza usr/), che linuxdeploy non riconoscerebbe. --prefix /usr + DESTDIR=AppDir produce esattamente il sottoalbero usr/ che il formato richiede, allo stesso modo in cui rpmbuild staggia in BUILDROOT e dpkg-buildpackage in una fakeroot.
 3. Includi: linuxdeploy legge DT_NEEDED in modo ricorsivo, copia in usr/lib ogni libreria che non e' nella excludelist, imposta RUNPATH=$ORIGIN/../lib, fa lo strip e crea AppRun e i link al .desktop e all'icona al primo livello. Per la nostra build di default non copia niente: tutto cio' che serve a ocio e' nella excludelist (slide successiva).
 4. Impacchetta: appimagetool trasforma l'AppDir in un'immagine SquashFS e ci mette davanti il runtime type2, lo stub ELF con il magic AI\x02 della slide su EI_PAD. Passiamo il runtime in modo esplicito, altrimenti appimagetool lo scarica a ogni build.
 La ricetta a mano (--method appimagetool) salta il passo 3: AppRun, il .desktop e l'icona li mettiamo noi, e nessuno controlla le librerie.
@@ -1012,11 +1015,11 @@ I tre strumenti (linuxdeploy, appimagetool, runtime) sono gia' installati nelle 
 
 ## La Scatola Ha un Bordo
 
-| Dentro la scatola | Fuori: l'host |
-|---|---|
-| Binario e asset dell'app | glibc: `libc`, `libm`, `ld.so` |
-| Librerie portate dall'app | GL: `libOpenGL`, `libGLX`, `libGLdispatch` |
-| | X11 / xcb, `libdrm`, ALSA |
+| Categoria | Dentro la scatola | Fuori: l'host |
+|---|---|---|
+| **Binario** | `ocio` + asset | glibc: `libc`, `libm`, `ld.so` |
+| **GL** | Raylib (statica) | `libOpenGL`, `libGLX`, `libGLdispatch` |
+| **Display / Audio** | — | X11 / xcb, `libdrm`, ALSA |
 
 Il confine è la **excludelist** di AppImage: librerie che si assume siano presenti su ogni desktop.
 <!-- .element: class="fragment" -->
@@ -1032,12 +1035,31 @@ Scatola giusta, host sbagliato: un container nudo non è un desktop.
 </p>
 
 Note:
-La excludelist (pkg2appimage/excludelist, applicata da linuxdeploy) elenca le librerie "we will assume to be present on the host system and hence should NOT be bundled inside AppImages". Contiene glibc, tutto lo stack GL (libOpenGL, libGLX, libGLdispatch, libGL, libEGL, libdrm), X11/xcb e ALSA.
-Perche' GL deve restare fuori: stesso argomento della slide Build vs. Runtime. I driver GPU sono dispatcher dinamici che devono corrispondere alla scheda dell'host; libglvnd carica libGLX_mesa o libGLX_nvidia dall'host. Una Mesa inclusa funziona in un container e si rompe con il driver proprietario NVIDIA o con una GPU piu' recente della Mesa inclusa.
-Il nostro ocio: raylib e' statica, e DT_NEEDED contiene solo libm, libOpenGL.so.0, libGLX.so.0, libc. Tutte e quattro sono nella excludelist. Quindi il nostro AppImage e' corretto secondo le regole del formato stesso: linuxdeploy non trova niente da includere.
-L'errore nel container e' il bordo della scatola, non un difetto della scatola. Installare libglvnd nel container ricrea il sistema base desktop che AppImage presuppone; su un desktop vero c'e' gia'.
-Il limite: AppImage non dichiara mai questo sistema base. La excludelist e' "a working document". Flatpak trasforma la stessa idea in un runtime esplicito e versionato (ponte verso Flatpak).
-Nota a margine: l'AppImage compilato su Debian parte e stampa --version nello stesso container. Non e' una scatola migliore: --as-needed ha tolto GL da DT_NEEDED, quindi fallisce piu' tardi, quando GLFW fa dlopen() di Xlib.
+Cosa e' la excludelist:
+- pkg2appimage/excludelist, applicata da linuxdeploy: librerie "assunte presenti sull'host e quindi da NON includere".
+- Contenuto: glibc, tutto lo stack GL (libOpenGL, libGLX, libGLdispatch, libGL, libEGL, libdrm), X11/xcb, ALSA.
+
+Perche' GL resta fuori (stesso argomento di Build vs. Runtime):
+- I driver GPU sono dispatcher dinamici che devono corrispondere alla scheda dell'host.
+- libglvnd carica libGLX_mesa o libGLX_nvidia dall'host.
+- Una Mesa inclusa funziona in un container e si rompe con il driver proprietario NVIDIA o con una GPU piu' recente della Mesa inclusa.
+
+Il nostro ocio:
+- raylib e' statica; DT_NEEDED contiene solo libm, libOpenGL.so.0, libGLX.so.0, libc.
+- Tutte e quattro sono nella excludelist, quindi linuxdeploy non trova niente da includere.
+- L'AppImage e' corretto secondo le regole del formato stesso.
+
+L'errore nel container:
+- E' il bordo della scatola, non un difetto della scatola.
+- Installare libglvnd nel container ricrea il sistema base desktop che AppImage presuppone; su un desktop vero c'e' gia'.
+
+Il limite:
+- AppImage non dichiara mai questo sistema base. La excludelist e' "a working document".
+- Flatpak trasforma la stessa idea in un runtime esplicito e versionato (ponte verso Flatpak).
+
+Nota a margine:
+- L'AppImage compilato su Debian parte e stampa --version nello stesso container.
+- Non e' una scatola migliore: --as-needed ha tolto GL da DT_NEEDED, quindi fallisce piu' tardi, quando GLFW fa dlopen() di Xlib.
 
 --
 
@@ -1073,6 +1095,23 @@ DA VERIFICARE prima del talk: soname esatto, testo dell'errore e RUNPATH vs RPAT
 
 ---
 
+## Flatpak: Sandbox Desktop Universale
+
+* Creato nel 2015 da **Alexander Larsson** in Red Hat (inizialmente *xdg-app*, rinominato nel 2016).
+* Nato per risolvere la frammentazione del desktop Linux disaccoppiando le applicazioni dalle distribuzioni host.
+
+Note:
+Introduciamo Flatpak:
+- Origine: Creato nel 2015 da Alexander Larsson in Red Hat con il nome iniziale xdg-app, rinominato ufficialmente Flatpak nel 2016. Larsson era uno storico sviluppatore core di GNOME.
+- Il Problema: La frammentazione del desktop Linux. Gli sviluppatori dovevano gestire decine di distribuzioni diverse, versioni disallineate di glibc e cicli di rilascio differenti. Gli aggiornamenti upstream rompevano i binari a causa di librerie di sistema modificate, oppure le distro stabili restavano bloccate su software vecchio.
+- La Visione: Disaccoppiare l'applicazione dal sistema operativo host. Compilare una sola volta ed eseguire ovunque (Ubuntu, Fedora, openSUSE, Arch) senza dipendere dai team di packaging delle singole distribuzioni.
+- Tre Pilastri Architetturali:
+  1. Separazione tra Runtime e Applicazione: Le app poggiano su runtime versionati (org.freedesktop.Platform, GNOME, KDE) anziché su /usr dell'host.
+  2. Storage con OSTree: "Git per binari", con deduplicazione tramite hardlink su disco e aggiornamenti atomici a delta.
+  3. Sandbox non privilegiata: Isolamento tramite Bubblewrap (bwrap) con namespace del kernel, cgroups e seccomp, con accesso a display e file mediato dai Portali Desktop XDG.
+
+--
+
 ## Flatpak: Runtime Desktop in Sandbox
 
 <div class="grid-2">
@@ -1080,8 +1119,8 @@ DA VERIFICARE prima del talk: soname esatto, testo dell'errore e RUNPATH vs RPAT
 
 ### Cos'è
 * Standard desktop universale in sandbox
-* *Alexander Larsson* (2015 *xdg-app*, 2016)
-* Sostenuto dall'ecosistema Flathub
+* Runtime di piattaforma condivisi e versionati
+* Storage indirizzato per contenuto via OSTree
 
 </div>
 <div>
@@ -1101,10 +1140,10 @@ DA VERIFICARE prima del talk: soname esatto, testo dell'errore e RUNPATH vs RPAT
 
 Note:
 Introduciamo Flatpak con le 4 lenti:
-1. Cos'e': Creato nel 2015 da Alexander Larsson in Red Hat (inizialmente xdg-app). E' diventato lo standard de-facto per app desktop cross-distro su Flathub.
+1. Cos'è: Un formato di distribuzione basato sulla netta separazione tra binari applicativi e runtime di piattaforma condivisi, gestito tramite storage OSTree.
 2. Superpotere: Disaccoppiamento radicale. L'applicazione non vede /usr dell'host, ma un ambiente isolato gestito da Bubblewrap con namespace del kernel e filtri seccomp.
-3. Flusso comune: Installa da repository remoto (Flathub), esegui, ispeziona l'ambiente interno con --command=sh e gestisci i permessi con flatpak override.
-4. Il limite: Poiche' la sandbox e' sigillata per impostazione predefinita, qualsiasi comunicazione con l'esterno deve essere dichiarata esplicitamente.
+3. Flusso comune: Installa da repository remoti, esegui, ispeziona l'ambiente interno con --command=sh e gestisci i permessi con flatpak override.
+4. Il limite: Poiché la sandbox è sigillata per impostazione predefinita, qualsiasi comunicazione con l'esterno deve essere dichiarata esplicitamente.
 
 --
 
