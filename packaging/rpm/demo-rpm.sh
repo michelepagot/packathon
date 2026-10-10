@@ -159,26 +159,50 @@ print_command_box() {
     echo -e "  ${CYAN}└──────────────────────────────────────────────────────────────────────${RESET}"
 }
 
+pause_prompt() {
+    local prompt_msg="${1:-}"
+    if [ "${PAUSE_MODE}" = true ]; then
+        echo -ne "${prompt_msg}"
+        if [ -c /dev/tty ] && [ -r /dev/tty ]; then
+            read -s -r _ < /dev/tty 2>/dev/null || read -s -r _ 2>/dev/null || true
+        else
+            read -s -r _ 2>/dev/null || read -r _ 2>/dev/null || true
+        fi
+        printf "\r\033[2K"
+    fi
+}
+
 demo_cmd() {
     local cmd="$1"
     local desc="${2:-}"
+    local comment="${3:-}"
 
     if [ -n "${desc}" ]; then
         substep "${desc}"
     fi
 
-    print_command_box "${cmd}"
+    echo ""
+    echo -e "  ${CYAN}┌──[ Command to Run ]──────────────────────────────────────────────────${RESET}"
+    echo -e "  ${BOLD}${YELLOW}${cmd}${RESET}"
 
     if [ "${DRY_RUN}" = true ]; then
+        echo -e "  ${CYAN}└──────────────────────────────────────────────────────────────────────${RESET}"
+        if [ -n "${comment}" ]; then
+            echo -e "${comment}"
+        fi
         return 0
     fi
 
-    if [ "${PAUSE_MODE}" = true ]; then
-        echo -ne "  ${BOLD}${GREEN}[PAUSE]${RESET} Press ${BOLD}[Enter]${RESET} to execute (or Ctrl+C to stop)... "
-        read -r _ < /dev/tty 2>/dev/null || read -r _ || true
+    echo -e "  ${CYAN}├──[ Output ]──────────────────────────────────────────────────────────${RESET}"
+    pause_prompt "  ${BOLD}${GREEN}[PAUSE]${RESET} Press ${BOLD}[Enter]${RESET} to execute (or Ctrl+C to stop)... "
+    eval "${cmd}" || true
+    echo -e "  ${CYAN}└──────────────────────────────────────────────────────────────────────${RESET}"
+
+    if [ -n "${comment}" ]; then
+        echo -e "${comment}"
     fi
 
-    eval "${cmd}" || true
+    pause_prompt "  ${BOLD}${GREEN}[PAUSE]${RESET} Press ${BOLD}[Enter]${RESET} to continue (or Ctrl+C to stop)... "
 }
 
 get_install_cmd() {
@@ -326,12 +350,8 @@ if [ -z "${BINARY_CANDIDATE}" ]; then
 elif [ "${HAVE_READELF}" = false ] && [ "${DRY_RUN}" = false ]; then
     skip "'readelf' is not installed (package: binutils). Skipping DT_NEEDED inspection."
 else
-    demo_cmd "readelf -d \"${BINARY_CANDIDATE}\" | grep NEEDED" "Inspecting DT_NEEDED in: ${BINARY_CANDIDATE}"
-    echo ""
-    echo -e "  ${DIM}Note: Notice libOpenGL.so.0 and libGLX.so.0 (libglvnd vendor dispatchers).${RESET}"
-    echo -e "  ${DIM}The binary does not hardcode packages or absolute paths; it requests SONAMEs.${RESET}"
-    echo -e "  ${DIM}--> If any DT_NEEDED library is missing at launch, ld.so halts execution${RESET}"
-    echo -e "  ${DIM}    before reaching main() and exits with status 127.${RESET}"
+    demo_cmd "readelf -d \"${BINARY_CANDIDATE}\" | grep NEEDED" "Inspecting DT_NEEDED in: ${BINARY_CANDIDATE}" \
+        "  ${DIM}Note: Notice libOpenGL.so.0 and libGLX.so.0 (libglvnd vendor dispatchers).\n  The binary does not hardcode packages or absolute paths; it requests SONAMEs.\n  --> If any DT_NEEDED library is missing at launch, ld.so halts execution\n      before reaching main() and exits with status 127.${RESET}"
 fi
 
 # -----------------------------------------------------------------------------
@@ -349,11 +369,9 @@ echo "capabilities and requirements from the compiled ELF binary during packagin
 if [ -n "${RPM_CANDIDATE}" ]; then
     if [ "${HAVE_RPM}" = true ] || [ "${DRY_RUN}" = true ]; then
         demo_cmd "rpm -qip \"${RPM_CANDIDATE}\"" "Inspecting RPM Package Metadata (rpm -qip):"
-        demo_cmd "rpm -qp --requires \"${RPM_CANDIDATE}\" | grep --color=always -e \"^\" -e \"libOpenGL\" -e \"libGLX\" -e \"libm\" -e \"libc\"" "Inspecting Package Requirements & Auto-detected Capabilities (rpm -qp --requires):"
-        echo ""
-        echo -e "  ${DIM}Key Takeaway: The ELF binary only knows SONAMEs. rpmbuild translated those${RESET}"
-        echo -e "  ${DIM}SONAMEs into qualified RPM capabilities that the package solver can resolve${RESET}"
-        echo -e "  ${DIM}against repository indexes.${RESET}"
+        demo_cmd "rpm -qp --requires \"${RPM_CANDIDATE}\" | grep --color=always -e \"^\" -e \"libOpenGL\" -e \"libGLX\" -e \"libm\" -e \"libc\"" \
+            "Inspecting Package Requirements & Auto-detected Capabilities (rpm -qp --requires):" \
+            "  ${DIM}Key Takeaway: The ELF binary only knows SONAMEs. rpmbuild translated those\n  SONAMEs into qualified RPM capabilities that the package solver can resolve\n  against repository indexes.${RESET}"
         demo_cmd "rpm -qpl \"${RPM_CANDIDATE}\"" "Inspecting RPM Payload Files (rpm -qpl):"
     else
         skip "'rpm' command is not available. Skipping RPM package inspection."
@@ -411,8 +429,8 @@ echo "and DRM libraries. libsolv converts this graph into Boolean CNF clauses an
 echo "calculates the complete transitive closure. (NOTHING WILL BE INSTALLED)."
 
 if (command -v rpm >/dev/null 2>&1 && rpm -q libglvnd >/dev/null 2>&1) || [ "${DRY_RUN}" = true ]; then
-    demo_cmd "rpm -q --requires libglvnd | grep -E 'Mesa|libX11|libglvnd|libdrm'" "Checking second-order dependencies: 'rpm -q --requires libglvnd'"
-    echo "Notice how libglvnd pulls in Mesa, libX11, and graphics drivers."
+    demo_cmd "rpm -q --requires libglvnd | grep -E 'Mesa|libX11|libglvnd|libdrm'" "Checking second-order dependencies: 'rpm -q --requires libglvnd'" \
+        "  ${DIM}Notice how libglvnd pulls in Mesa, libX11, and graphics drivers.${RESET}"
 fi
 
 if [ "${IS_OPENSUSE}" = true ] && (command -v zypper >/dev/null 2>&1 || [ "${DRY_RUN}" = true ]); then
@@ -446,10 +464,8 @@ if [ "${OCIO_INSTALLED}" = true ] || [ "${DRY_RUN}" = true ]; then
     demo_cmd "ldd \"${OCIO_BIN}\"" "Inspecting installed binary dynamic linker paths (ldd):"
     
     if (command -v rpm >/dev/null 2>&1 && rpm -q ocio >/dev/null 2>&1) || [ "${DRY_RUN}" = true ]; then
-        demo_cmd "rpm -V ocio" "Verifying package integrity with RPM database (rpm -V ocio):"
-        if [ "${DRY_RUN}" != true ]; then
-            echo -e "${GREEN}All files intact and verified against RPM package database.${RESET}"
-        fi
+        demo_cmd "rpm -V ocio" "Verifying package integrity with RPM database (rpm -V ocio):" \
+            "  ${GREEN}All files intact and verified against RPM package database.${RESET}"
     fi
 else
     skip "ocio is not installed on this system."

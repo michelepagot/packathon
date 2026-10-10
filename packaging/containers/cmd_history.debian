@@ -17,6 +17,7 @@ ocio
 apt-get update
 apt-get install -y --no-install-recommends libx11-6
 apt-get install -y --no-install-recommends libglx0
+apt-get install -y file xxd squashfs-tools binutils fuse3
 
 # === Route 1: DEB Dissection & Verification ===
 file dist/ocio_0.1.0_amd64.deb
@@ -32,8 +33,23 @@ dpkg --verify ocio
 # === Route 2: AppImage Mechanics ===
 file dist/ocio-x86_64.AppImage
 dist/ocio-x86_64.AppImage --version
+xxd -l 96 -d dist/ocio-x86_64.AppImage
+hexdump -C -n 96 dist/ocio-x86_64.AppImage
+readelf -d dist/ocio-x86_64.AppImage
+dist/ocio-x86_64.AppImage --appimage-offset
+ls -lh dist/ocio-x86_64.AppImage
+unsquashfs -s -offset $(dist/ocio-x86_64.AppImage --appimage-offset) dist/ocio-x86_64.AppImage
+unsquashfs -l -offset $(dist/ocio-x86_64.AppImage --appimage-offset) dist/ocio-x86_64.AppImage
+dist/ocio-x86_64.AppImage --appimage-mount &
+df -h | grep /tmp/.mount
+df -h /tmp/.mount_*
+ls -la /tmp/.mount_*/
+readelf -d /tmp/.mount_*/usr/bin/ocio | grep NEEDED
+strings /tmp/.mount_*/usr/bin/ocio | grep -E '^GLIBC_2\.' | sort -V | tail -n 5
 dist/ocio-x86_64.AppImage --appimage-extract
 ls -la squashfs-root
+./squashfs-root/AppRun
+./dist/ocio-x86_64.AppImage --appimage-extract && ./squashfs-root/AppRun
 objdump -T squashfs-root/usr/local/bin/ocio | grep -E "GLIBC_2\." | sort -V | tail -n 5
 
 # === Route 3: Flatpak & Sandbox Dissection ===
