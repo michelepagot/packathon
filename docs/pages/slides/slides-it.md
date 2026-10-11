@@ -650,6 +650,12 @@ Installare significa copiare file e mantenere un database autorevole:
 
 ## DEB: Standard Debian
 
+<div class="grid-2" style="align-items: center; gap: 40px; margin-top: 30px;">
+<div style="flex: 0 0 auto;">
+  <img src="image/Application-x-deb.svg" alt="Debian package" style="max-height: 380px; width: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+</div>
+<div style="flex: 1; font-size: 1.05em; line-height: 1.8;">
+
 * *Ian Murdock* (Debian, 1993)
 * Rigide policy e conformità FHS
 * Standard Debian, Ubuntu e Mint
@@ -657,6 +663,9 @@ Installare significa copiare file e mantenere un database autorevole:
 <p class="fragment text-info" style="margin-top: 35px;">
 <strong>Superpotere:</strong> Mappatura esatta dei simboli via <code>dpkg-shlibdeps</code> e scriptlet di controllo.
 </p>
+
+</div>
+</div>
 
 Note:
 Introduciamo DEB:
@@ -737,7 +746,7 @@ La struttura della ricetta Debian:
 - debian/rules: Un Makefile eseguibile. Il packaging moderno usa `dh $@` per automatizzare le fasi (dh_auto_configure, dh_auto_build, dh_auto_install).
 - debian/changelog: La fonte canonica per versione e release. In Debian non si dichiara Version in control; dpkg-parsechangelog la ricava dalla prima voce del changelog.
 - debian/copyright: Manifest standard DEP-5 che documenta le licenze file per file per la verifica delle linee guida DFSG.
-- Risoluzione a runtime: dh_shlibdeps scansiona i binari ELF, consulta i file .symbols delle librerie e compila in automatico ${shlibs:Depends}.
+- Risoluzione a runtime: dh_shlibdeps scansiona i binari ELF, consulta il file shlibs/symbols di ogni libreria e compila in automatico ${shlibs:Depends}.
 
 --
 
@@ -812,9 +821,18 @@ Valutazione dei trade-off della delega:
 
 ## AppImage: Singolo File Portabile
 
+<div class="grid-2" style="align-items: center; gap: 40px; margin-top: 30px;">
+<div style="flex: 0 0 auto;">
+  <img src="image/appimage.png" alt="AppImage" style="max-height: 380px; width: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+</div>
+<div style="flex: 1; font-size: 1.05em; line-height: 1.8;">
+
 * *Simon Peter* (2004 *klik*, 2011)
 * Un'app = un singolo file eseguibile
 * Portabilità tra distro, zero installazione (niente root)
+
+</div>
+</div>
 
 Note:
 Introduciamo AppImage:
