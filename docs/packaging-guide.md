@@ -97,6 +97,26 @@ flatpak-builder --force-clean build-dir packaging/flatpak/org.packathon.ocio.yml
 flatpak-builder --export-bundle repo ocio.flatpak org.packathon.ocio
 ```
 
+### Hosting the Flatpak on GitHub
+
+Two complementary distribution channels are automated in GitHub Actions:
+
+1. **GitHub Releases** (`.flatpak` bundle): every `v*` tag builds a standalone bundle attached to the release (see `.github/workflows/release.yml`, job `build-flatpak`). Users install it with:
+   ```bash
+   flatpak install --user ./ocio.flatpak
+   ```
+2. **GitHub Pages** (full OSTree repository): every push to `main` builds the app into an OSTree repo (with static deltas and pruning) and deploys it to `https://michelepagot.github.io/packathon/` (see `.github/workflows/flatpak-pages.yml`). This enables `flatpak update` and one-click installation via the reference descriptors in [`packaging/flatpak/distribution/`](../packaging/flatpak/distribution/):
+   ```bash
+   # One-click install (runtime dependencies resolved from Flathub):
+   flatpak install --user https://michelepagot.github.io/packathon/org.packathon.ocio.flatpakref
+
+   # Or add the remote and install:
+   flatpak remote-add --user --if-not-exists packathon https://michelepagot.github.io/packathon/org.packathon.ocio.flatpakrepo
+   flatpak install --user packathon org.packathon.ocio
+   ```
+
+   Optional GPG signing: set the `GPG_PRIVATE_KEY` repository secret (base64-encoded armored private key) and fill in the `GPGKey=` line of both descriptors with the base64-encoded public key. Without it, the repository is built unsigned.
+
 ## Container-Based Packaging & Testing (Podman)
 
 To isolate toolchains without host pollution, test package dependency resolution in upstream distributions,

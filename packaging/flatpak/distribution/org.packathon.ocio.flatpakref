@@ -1,0 +1,8 @@
+[Flatpak Ref]
+Title=ocio
+Name=org.packathon.ocio
+Branch=stable
+Url=https://michelepagot.github.io/packathon/repo/
+IsRuntime=false
+RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+# GPGKey=<base64-encoded-public-gpg-key>

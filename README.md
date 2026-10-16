@@ -33,6 +33,12 @@ curl -L https://github.com/michelepagot/packathon/releases/latest/download/ocio-
 
 If it does not work... well, you are in the right place, no blame on you, that is the point of this talk.
 
+Prefer Flatpak? The app is also hosted as a full OSTree repository on GitHub Pages, so it supports one-click install and `flatpak update`:
+
+```bash
+flatpak install --user https://michelepagot.github.io/packathon/org.packathon.ocio.flatpakref
+```
+
 
 | Format | Who provides the dependencies | Recipe | Live demo |
 |---|---|---|---|
@@ -89,6 +95,7 @@ Every tagged release on GitHub publishes the full set of artifacts: Linux tarbal
 | [`release.yml`](.github/workflows/release.yml) | On `v*` tags: builds every artifact, installs each Linux package in a vanilla container, attaches them to the release |
 | [`containers.yml`](.github/workflows/containers.yml) | Publishes the openSUSE and Debian builder images to `ghcr.io/michelepagot/packathon/{opensuse,debian}-builder` |
 | [`pages.yml`](.github/workflows/pages.yml) | Deploys the slides to GitHub Pages |
+| [`flatpak-pages.yml`](.github/workflows/flatpak-pages.yml) | On pushes to `main`: builds the Flatpak into an OSTree repository (static deltas, pruned) and deploys it to GitHub Pages, enabling `flatpak update` |
 
 ## Repository map
 

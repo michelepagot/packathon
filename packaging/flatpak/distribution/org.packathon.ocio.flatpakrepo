@@ -1,0 +1,6 @@
+[Flatpak Repo]
+Title=Packathon Flatpak Repository
+Url=https://michelepagot.github.io/packathon/repo/
+Homepage=https://github.com/michelepagot/packathon
+Comment=Official Flatpak builds for org.packathon.ocio
+# GPGKey=<base64-encoded-public-gpg-key>
