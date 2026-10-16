@@ -279,6 +279,11 @@ $ ./ocio-x86_64.AppImage --appimage-extract
 $ flatpak-builder --force-clean build-dir packaging/flatpak/org.packathon.ocio.yml
 $ flatpak-builder --export-bundle repo ocio.flatpak org.packathon.ocio
 
+# Install from the OSTree repository hosted on GitHub Pages (one-click ref, or remote)
+$ flatpak install --user https://michelepagot.github.io/packathon/org.packathon.ocio.flatpakref
+$ flatpak remote-add --user --if-not-exists packathon https://michelepagot.github.io/packathon/org.packathon.ocio.flatpakrepo
+$ flatpak install --user packathon org.packathon.ocio
+
 # Install the DEB in a vanilla container and run it with X11 and DRI GPU pass-through
 $ xhost +SI:localuser:$USER
 $ podman run --rm -it \
