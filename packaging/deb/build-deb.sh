@@ -231,7 +231,7 @@ else
 
     run_cmd "mkdir -p \"${STAGE_DIR}\"" \
         "Creating the staging root directory."
-    run_cmd "cp -r \"${SCRIPT_DIR}/skeleton/.\" \"${STAGE_DIR}/\" && cp \"${BUILD_DIR}/bin/ocio\" \"${STAGE_DIR}/usr/bin/ocio\" && chmod 755 \"${STAGE_DIR}/usr/bin/ocio\" && cp \"${REPO_ROOT}/packaging/ocio.desktop\" \"${STAGE_DIR}/usr/share/applications/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.png\" \"${STAGE_DIR}/usr/share/icons/hicolor/256x256/apps/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.svg\" \"${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/\" && cp \"${REPO_ROOT}/packaging/org.packathon.ocio.metainfo.xml\" \"${STAGE_DIR}/usr/share/metainfo/\"" \
+    run_cmd "cp -r \"${SCRIPT_DIR}/skeleton/.\" \"${STAGE_DIR}/\" && mkdir -p \"${STAGE_DIR}/usr/bin\" && cp \"${BUILD_DIR}/bin/ocio\" \"${STAGE_DIR}/usr/bin/ocio\" && chmod 755 \"${STAGE_DIR}/usr/bin/ocio\" && cp \"${REPO_ROOT}/packaging/ocio.desktop\" \"${STAGE_DIR}/usr/share/applications/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.png\" \"${STAGE_DIR}/usr/share/icons/hicolor/256x256/apps/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.svg\" \"${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/\" && cp \"${REPO_ROOT}/packaging/org.packathon.ocio.metainfo.xml\" \"${STAGE_DIR}/usr/share/metainfo/\"" \
         "Copying the Debian directory skeleton and all payload files into the staging tree: the compiled ocio binary (usr/bin/), the XDG .desktop file (usr/share/applications/), the PNG and SVG icons (usr/share/icons/hicolor/), and the AppStream metainfo (usr/share/metainfo/). DEBIAN/ holds package metadata read by dpkg-deb at build time; the usr/ tree is the FHS payload installed onto the target system."
 
     # -----------------------------------------------------------------------------

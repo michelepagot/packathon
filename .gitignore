@@ -4,6 +4,7 @@ build-*/
 build_*/
 dist/
 bin/
+!packaging/deb/skeleton/usr/bin/
 cmake-build-*/
 .cache/
 __pycache__/
