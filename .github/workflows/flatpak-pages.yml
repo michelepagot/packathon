@@ -46,6 +46,9 @@ jobs:
           GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5; exit}')
           echo "GPG_KEY_ID=${GPG_KEY_ID}" >> $GITHUB_ENV
 
+      - name: Create repo directory
+        run: mkdir -p public/repo
+
       - name: Build Application into OSTree Repo
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:

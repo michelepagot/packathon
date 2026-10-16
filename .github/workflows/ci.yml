@@ -238,6 +238,36 @@ jobs:
           manifest-path: packaging/flatpak/org.packathon.ocio.yml
           run-tests: false
 
+      # Mirror the flatpak-pages.yml repo path: the flatpak-builder action does
+      # NOT create repo-dir, so it must exist before the build or the OSTree
+      # export fails with "mkdirat: No such file or directory".
+      - name: Build OSTree repo (as flatpak-pages.yml does)
+        run: mkdir -p public/repo
+
+      - name: Build Application into OSTree Repo
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/org.packathon.ocio.yml
+          repo-dir: public/repo
+          run-tests: false
+
+      - name: Update Static Deltas & Prune
+        run: |
+          flatpak build-update-repo \
+            --generate-static-deltas \
+            --prune \
+            public/repo
+
+      - name: Verify repo contents
+        run: |
+          ls -la public/repo/
+          # ls only proves the repo directory was created. The ostree log
+          # proves the app was actually committed into it: it resolves the
+          # ref (a named pointer to a commit, like a git branch) and prints
+          # the commit history. If the export failed to write the app, this
+          # ref would not exist and the step fails.
+          ostree --repo=public/repo log app/org.packathon.ocio/x86_64/master
+
   # ===========================================================================
   # 4. Host Sanity Build
   # ===========================================================================
