@@ -152,6 +152,40 @@ jobs:
           rm -rf build
           ls -la dist/
 
+      # Uses canonical Debian source package workflow (dh, debian/rules, dpkg-buildpackage)
+      - name: "Packaging Mode: Canonical debhelper (build-deb.sh --mode debhelper)"
+        run: |
+          rm -rf dist
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            localhost/packathon-debian:builder \
+            ./packaging/deb/build-deb.sh --mode debhelper
+          ls -la dist/
+
+      - name: Verify canonical debhelper DEB in pristine vanilla Debian Bookworm
+        run: |
+          DEB_FILE=$(ls dist/*.deb | head -n1)
+          echo "Testing debhelper DEB: $DEB_FILE"
+          podman run --rm -v "$PWD/$DEB_FILE:/ocio.deb:ro,Z" \
+            debian:bookworm-slim \
+            sh -c "apt-get update && apt-get install -y /ocio.deb && ocio --version && ocio --help"
+
+      # Uses low-level binary packaging workflow (skeleton, dpkg-shlibdeps, dpkg-deb)
+      - name: "Packaging Mode: Frugal atomic deb (build-deb.sh --mode frugal)"
+        run: |
+          rm -rf dist
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            localhost/packathon-debian:builder \
+            ./packaging/deb/build-deb.sh --mode frugal
+          ls -la dist/
+
+      - name: Verify frugal DEB in pristine vanilla Debian Bookworm
+        run: |
+          DEB_FILE=$(ls dist/*.deb | head -n1)
+          echo "Testing frugal DEB: $DEB_FILE"
+          podman run --rm -v "$PWD/$DEB_FILE:/ocio.deb:ro,Z" \
+            debian:bookworm-slim \
+            sh -c "apt-get update && apt-get install -y /ocio.deb && ocio --version && ocio --help"
+
       - name: "Packaging Mode: AppImage (Containerized appimagetool)"
         run: |
           rm -rf dist

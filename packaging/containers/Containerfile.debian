@@ -96,6 +96,7 @@ RUN apt-get update && \
         libglu1-mesa-dev \
         libasound2-dev \
         # [Packaging Tools]
+        debhelper \
         dpkg-dev \
         flatpak \
         flatpak-builder \

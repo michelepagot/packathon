@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@ --buildsystem=cmake
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DRAYLIB_MODE=FETCH -DFETCHCONTENT_FULLY_DISCONNECTED=OFF -DCMAKE_BUILD_TYPE=Release
+
+override_dh_auto_install:
+	dh_auto_install
+	rm -rf debian/ocio/usr/include debian/ocio/usr/lib
+
