@@ -18,6 +18,10 @@ name: Container Images
     - cron: '0 4 * * 1'
   workflow_dispatch:
 
+concurrency:
+  group: containers-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: Build (${{ matrix.image.distro }}-${{ matrix.image.type_slug }} - ${{ matrix.platform.arch_slug }})

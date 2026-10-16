@@ -52,6 +52,7 @@ For more detail, see:
 - [Packaging Guide](docs/packaging-guide.md): how each format works and what it costs
 - [Container-Based Packaging & Testing](docs/container-packaging.md): builder images, the build/fail/fix/package/install walkthrough, display pass-through, vanilla-container verification
 - [Dependency Updates & Maintenance Guide](docs/maintenance.md): coordinating versions across formats and how to update them
+- [Workflows & CI/CD Guide](docs/workflows.md): continuous integration, release packaging, container builds, and Pages deployment
 
 To build them yourself instead, every recipe writes its artifacts to `dist/`. The builder images hold only the tools:
 you mount the checkout and name the script to run, so you need only `podman`.
@@ -85,24 +86,12 @@ To build and run `ocio` directly on your machine, see [`src/README.md`](src/READ
 
 The [devcontainer](.devcontainer/) provides the same environment in a browser terminal (ttyd on port 7681). This is the setup used for the live demo.
 
-## Releases and CI
-
-Every tagged release on GitHub publishes the full set of artifacts: Linux tarball, `.rpm`, `.deb`, AppImage and Flatpak, plus a Windows `.zip` and a macOS ARM64 tarball.
-
-| Workflow | What it does |
-|---|---|
-| [`ci.yml`](.github/workflows/ci.yml) | Builds, checks the CLI flags and runs CPack on every PR and push to `main` |
-| [`release.yml`](.github/workflows/release.yml) | On `v*` tags: builds every artifact, installs each Linux package in a vanilla container, attaches them to the release |
-| [`containers.yml`](.github/workflows/containers.yml) | Publishes the openSUSE and Debian builder images to `ghcr.io/michelepagot/packathon/{opensuse,debian}-builder` |
-| [`pages.yml`](.github/workflows/pages.yml) | Deploys the slides to GitHub Pages |
-| [`flatpak-pages.yml`](.github/workflows/flatpak-pages.yml) | On pushes to `main`: builds the Flatpak into an OSTree repository (static deltas, pruned) and deploys it to GitHub Pages, enabling `flatpak update` |
-
 ## Repository map
 
 ```
 src/                  the ocio application (see src/README.md)
 packaging/            one directory per format, plus containers/ and demo/
-docs/                 packaging and container guides
+docs/                 packaging, container, and workflow guides
 docs/pages/slides/    the talk (Reveal.js, IT and EN)
 .devcontainer/        browser-based live-demo environment
 ```
