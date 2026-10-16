@@ -7,6 +7,7 @@
 # Re-derive the dlopen() list after a raylib/GLFW bump (needs an X display, e.g. xvfb-run):
 #   LD_DEBUG=files ocio 2>&1 | grep 'dynamically loaded by ocio'
 # then map each file to its package with dpkg -S.
+Source: ocio
 Package: ocio
 Version: ${version}
 Architecture: ${arch}

@@ -1,0 +1,25 @@
+Source: ocio
+Section: graphics
+Priority: optional
+Maintainer: Packathon Maintainers <maintainers@packathon.org>
+Build-Depends: debhelper-compat (= 13),
+ cmake,
+ gcc,
+ libx11-dev,
+ libxrandr-dev,
+ libxinerama-dev,
+ libxcursor-dev,
+ libxi-dev,
+ libgl1-mesa-dev,
+ libglu1-mesa-dev,
+ libasound2-dev
+Standards-Version: 4.6.2
+
+Package: ocio
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libglx0, libx11-6
+Recommends: libxcursor1, libxi6, libxinerama1, libxrandr2
+Description: Raylib interactive eye-tracking educational demo
+ Ocio is an interactive educational demonstration that tracks the mouse pointer
+ with an animated eye, illustrating real-time rendering, dynamic linker mechanics,
+ and Linux operating system packaging pipelines without high-level wrappers.
