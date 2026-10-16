@@ -105,10 +105,13 @@ Two complementary distribution channels are automated in GitHub Actions:
    ```bash
    flatpak install --user ./ocio.flatpak
    ```
-2. **GitHub Pages** (full OSTree repository): every push to `main` builds the app into an OSTree repo (with static deltas and pruning) and deploys it to `https://michelepagot.github.io/packathon/` (see `.github/workflows/flatpak-pages.yml`). This enables `flatpak update` and one-click installation via the reference descriptors in [`packaging/flatpak/distribution/`](../packaging/flatpak/distribution/):
+2. **GitHub Pages** (full OSTree repository): every push to `main` builds the app into the `master` branch (nightly), and every release tag builds the `stable` branch into the OSTree repo (with static deltas and pruning), deployed to `https://michelepagot.github.io/packathon/` alongside the slides (see `.github/workflows/pages.yml`). This enables `flatpak update` and one-click installation via reference descriptors:
    ```bash
-   # One-click install (runtime dependencies resolved from Flathub):
+   # One-click install for stable release:
    flatpak install --user https://michelepagot.github.io/packathon/org.packathon.ocio.flatpakref
+
+   # Or install bleeding-edge nightly:
+   flatpak install --user https://michelepagot.github.io/packathon/org.packathon.ocio-nightly.flatpakref
 
    # Or add the remote and install:
    flatpak remote-add --user --if-not-exists packathon https://michelepagot.github.io/packathon/org.packathon.ocio.flatpakrepo

@@ -13,6 +13,10 @@ on:
       - '.github/workflows/slides.yml'
   workflow_dispatch:
 
+concurrency:
+  group: slides-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-slides:
     name: Slide Deck Coherence Linter

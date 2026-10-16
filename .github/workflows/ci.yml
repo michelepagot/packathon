@@ -3,18 +3,36 @@ name: CI
 on:
   push:
     branches: [ main ]
-    # Docs-only changes do not need the build matrix: slides are linted by slides.yml
+    # Docs, workflows, and non-build files do not need the CI build matrix
     paths-ignore:
       - 'docs/**'
       - '**.md'
+      - '.github/workflows/pages.yml'
       - '.github/workflows/slides.yml'
+      - '.github/workflows/containers.yml'
+      - '.github/workflows/release.yml'
+      - '.gitignore'
+      - 'LICENSE'
+      - '*.png'
+      - '.devcontainer/**'
   pull_request:
     branches: [ main ]
     paths-ignore:
       - 'docs/**'
       - '**.md'
+      - '.github/workflows/pages.yml'
       - '.github/workflows/slides.yml'
+      - '.github/workflows/containers.yml'
+      - '.github/workflows/release.yml'
+      - '.gitignore'
+      - 'LICENSE'
+      - '*.png'
+      - '.devcontainer/**'
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ===========================================================================
@@ -27,12 +45,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Detect changed paths
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'CMakeLists.txt'
+            rpm:
+              - 'packaging/rpm/**'
+            containers:
+              - 'packaging/containers/**'
+            meta:
+              - 'packaging/ocio.desktop'
+              - 'packaging/icons/**'
+              - 'packaging/org.packathon.ocio.metainfo.xml'
+
+      - name: Skip if no relevant changes
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.filter.outputs.app != 'true' &&
+          steps.filter.outputs.rpm != 'true' &&
+          steps.filter.outputs.containers != 'true' &&
+          steps.filter.outputs.meta != 'true'
+        run: exit 0
+
       # --- Builder Image ---
-      - name: Build openSUSE builder image
-        run: |
-          podman build \
-            -t localhost/packathon-opensuse:builder \
-            -f packaging/containers/Containerfile.opensuse packaging/containers
+      - name: Setup openSUSE builder image
+        run: ./packaging/containers/setup-builder.sh opensuse ${{ steps.filter.outputs.containers == 'true' && '--rebuild' || '' }}
 
       # --- Build Modes in openSUSE Containers ---
       - name: "Build Mode: FETCH (Default, static raylib, CPack RPM & TGZ)"
@@ -116,12 +158,42 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Detect changed paths
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'CMakeLists.txt'
+            deb:
+              - 'packaging/deb/**'
+            appimage:
+              - 'packaging/appimage/**'
+            flatpak:
+              - 'packaging/flatpak/**'
+            containers:
+              - 'packaging/containers/**'
+            meta:
+              - 'packaging/ocio.desktop'
+              - 'packaging/icons/**'
+              - 'packaging/org.packathon.ocio.metainfo.xml'
+
+      - name: Skip if no relevant changes
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.filter.outputs.app != 'true' &&
+          steps.filter.outputs.deb != 'true' &&
+          steps.filter.outputs.appimage != 'true' &&
+          steps.filter.outputs.flatpak != 'true' &&
+          steps.filter.outputs.containers != 'true' &&
+          steps.filter.outputs.meta != 'true'
+        run: exit 0
+
       # --- Builder Image ---
-      - name: Build Debian builder image
-        run: |
-          podman build \
-            -t localhost/packathon-debian:builder \
-            -f packaging/containers/Containerfile.debian packaging/containers
+      - name: Setup Debian builder image
+        run: ./packaging/containers/setup-builder.sh debian ${{ steps.filter.outputs.containers == 'true' && '--rebuild' || '' }}
 
       # --- Build Modes in Debian Containers ---
       - name: "Build Mode: FETCH (Default, static raylib, CPack DEB & TGZ)"
@@ -231,6 +303,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Detect changed paths
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'CMakeLists.txt'
+            flatpak:
+              - 'packaging/flatpak/**'
+
+      - name: Skip if no relevant changes
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.filter.outputs.app != 'true' &&
+          steps.filter.outputs.flatpak != 'true'
+        run: exit 0
+
+      - name: Cache Flatpak Builder
+        uses: actions/cache@v4
+        with:
+          path: .flatpak-builder
+          key: flatpak-builder-${{ runner.os }}-${{ hashFiles('packaging/flatpak/org.packathon.ocio.yml') }}
+          restore-keys: |
+            flatpak-builder-${{ runner.os }}-
+
       - name: Build Flatpak package
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
@@ -238,17 +337,19 @@ jobs:
           manifest-path: packaging/flatpak/org.packathon.ocio.yml
           run-tests: false
 
-      # Mirror the flatpak-pages.yml repo path: the flatpak-builder action does
-      # NOT create repo-dir, so it must exist before the build or the OSTree
-      # export fails with "mkdirat: No such file or directory".
-      - name: Build OSTree repo (as flatpak-pages.yml does)
-        run: mkdir -p public/repo
+      # The flatpak-builder action does NOT create repo-dir, so it must exist
+      # before the build or the OSTree export fails with
+      # "mkdirat: No such file or directory".
+      - name: Prepare OSTree working directory
+        run: |
+          mkdir -p ostree-repo
+          ostree init --mode=archive-z2 --repo=ostree-repo
 
       - name: Build Application into OSTree Repo
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: packaging/flatpak/org.packathon.ocio.yml
-          repo-dir: public/repo
+          repo-dir: ostree-repo
           run-tests: false
 
       - name: Update Static Deltas & Prune
@@ -256,17 +357,17 @@ jobs:
           flatpak build-update-repo \
             --generate-static-deltas \
             --prune \
-            public/repo
+            ostree-repo
 
       - name: Verify repo contents
         run: |
-          ls -la public/repo/
+          ls -la ostree-repo/
           # ls only proves the repo directory was created. The ostree log
           # proves the app was actually committed into it: it resolves the
           # ref (a named pointer to a commit, like a git branch) and prints
           # the commit history. If the export failed to write the app, this
           # ref would not exist and the step fails.
-          ostree --repo=public/repo log app/org.packathon.ocio/x86_64/master
+          ostree --repo=ostree-repo log app/org.packathon.ocio/x86_64/master
 
   # ===========================================================================
   # 4. Host Sanity Build
@@ -278,10 +379,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Detect changed paths
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'CMakeLists.txt'
+
+      - name: Skip if no relevant changes
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.filter.outputs.app != 'true'
+        run: exit 0
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential cmake git \
             libasound2-dev libx11-dev libxrandr-dev libxi-dev \
             libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
@@ -291,7 +408,7 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build ocio
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --parallel
 
       - name: Test CLI flags
         run: |
@@ -308,11 +425,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Detect changed paths
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'CMakeLists.txt'
+
+      - name: Skip if no relevant changes
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.filter.outputs.app != 'true'
+        run: exit 0
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build ocio
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --parallel
 
       - name: Test CLI flags
         run: |
@@ -331,11 +464,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Detect changed paths
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'CMakeLists.txt'
+
+      - name: Skip if no relevant changes
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.filter.outputs.app != 'true'
+        run: exit 0
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build ocio
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --parallel
 
       - name: Test CLI flags
         run: |

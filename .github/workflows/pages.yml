@@ -1,11 +1,15 @@
-name: Deploy GitHub Pages
+name: Deploy Documentation & Flatpak Repository to GitHub Pages
 
 on:
   push:
     branches: ["main"]
     paths:
       - "docs/pages/**"
+      - "packaging/flatpak/**"
       - ".github/workflows/pages.yml"
+    tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -18,23 +22,136 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build:
+    name: Build Site & OSTree Repository
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Primary Goal: Stage and guarantee presentation slides & documentation
+      # -----------------------------------------------------------------------
+      - name: Stage Documentation & Reference Descriptors
+        run: |
+          mkdir -p public/repo
+          # Copy all documentation, cheatsheet, slides and hidden files (like .nojekyll) into public/
+          cp -r docs/pages/. public/
+          # Copy Flatpak reference descriptors into public/
+          cp packaging/flatpak/distribution/org.packathon.ocio.flatpakref public/
+          cp packaging/flatpak/distribution/org.packathon.ocio-nightly.flatpakref public/ 2>/dev/null || true
+          cp packaging/flatpak/distribution/org.packathon.ocio.flatpakrepo public/
+
+      - name: Verify Documentation & Slides Integrity
+        run: |
+          echo "=== Verifying critical Pages documentation & slides ==="
+          test -s public/index.html || { echo "CRITICAL ERROR: public/index.html is missing or empty!"; exit 1; }
+          test -s public/cheatsheet.html || { echo "CRITICAL ERROR: public/cheatsheet.html is missing or empty!"; exit 1; }
+          test -d public/slides || { echo "CRITICAL ERROR: public/slides/ directory is missing!"; exit 1; }
+          test -s public/slides/slides-en.md || { echo "CRITICAL ERROR: public/slides/slides-en.md is missing or empty!"; exit 1; }
+          test -s public/slides/slides-it.md || { echo "CRITICAL ERROR: public/slides/slides-it.md is missing or empty!"; exit 1; }
+          test -f public/.nojekyll || { echo "CRITICAL ERROR: public/.nojekyll is missing!"; exit 1; }
+          echo "Integrity check PASSED: All slides and documentation are guaranteed present."
+
+      # -----------------------------------------------------------------------
+      # Secondary Goal: Build/update Flatpak OSTree repository (non-blocking)
+      # -----------------------------------------------------------------------
+      - name: Cache Flatpak Builder
+        uses: actions/cache@v4
+        with:
+          path: .flatpak-builder
+          key: flatpak-builder-${{ runner.os }}-${{ hashFiles('packaging/flatpak/org.packathon.ocio.yml') }}
+          restore-keys: |
+            flatpak-builder-${{ runner.os }}-
+
+      - name: Cache OSTree Working Repository
+        uses: actions/cache@v4
+        with:
+          path: ostree-repo
+          key: ostree-repo-${{ runner.os }}-${{ hashFiles('packaging/flatpak/org.packathon.ocio.yml') }}-${{ github.sha }}
+          restore-keys: |
+            ostree-repo-${{ runner.os }}-${{ hashFiles('packaging/flatpak/org.packathon.ocio.yml') }}-
+            ostree-repo-${{ runner.os }}-
+
+      - name: Determine Flatpak branch
+        id: branch
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]] || [ "${{ github.event_name }}" = "release" ]; then
+            echo "branch=stable" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=master" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Import GPG key for signing (optional: build is unsigned if secret is not set)
+      - name: Setup GPG Signing Key
+        if: env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | base64 --decode | gpg --batch --import
+          GPG_KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5; exit}')
+          echo "GPG_KEY_ID=${GPG_KEY_ID}" >> $GITHUB_ENV
+
+      # Unconditionally initialize ostree repository so flatpak-builder never sees an uninitialized directory
+      - name: Prepare OSTree Working Directory
+        run: |
+          mkdir -p ostree-repo
+          ostree init --mode=archive-z2 --repo=ostree-repo
+
+      - name: Build Application into OSTree Repo
+        id: flatpak_build
+        continue-on-error: true
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/org.packathon.ocio.yml
+          repo-dir: ostree-repo
+          branch: ${{ steps.branch.outputs.branch }}
+          gpg-sign: ${{ env.GPG_KEY_ID }}
+
+      - name: Update Static Deltas & Prune
+        if: steps.flatpak_build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          flatpak build-update-repo \
+            ${{ env.GPG_KEY_ID && format('--gpg-sign={0}', env.GPG_KEY_ID) || '' }} \
+            --generate-static-deltas \
+            --prune \
+            ostree-repo
+
+      # Stage OSTree repo into public/ only when build was successful
+      - name: Stage OSTree Repo into Public Directory
+        if: steps.flatpak_build.outcome == 'success'
+        run: |
+          mkdir -p public/repo
+          cp -a ostree-repo/. public/repo/
+          echo "OSTree repository staged successfully into public/repo/"
+
+      # Final safeguard check before uploading to GitHub Pages
+      - name: Final Site Content Verification
+        run: |
+          echo "=== Final verification of public/ deployment payload ==="
+          test -s public/index.html || { echo "CRITICAL: public/index.html missing!"; exit 1; }
+          test -s public/slides/slides-en.md || { echo "CRITICAL: slides missing!"; exit 1; }
+          test -f public/.nojekyll || { echo "CRITICAL: public/.nojekyll missing!"; exit 1; }
+          ls -la public/
+          ls -la public/slides/
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public/
+
   deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: "docs/pages"
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
