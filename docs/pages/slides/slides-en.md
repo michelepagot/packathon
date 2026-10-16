@@ -143,8 +143,10 @@ Bridge to the rest of the talk:
 > *"It works on my machine."*
 
 ```text
-/ocio: error while loading shared libraries: libOpenGL.so.0:
-cannot open shared object file: No such file or directory
+/ocio: error while loading shared libraries:
+libOpenGL.so.0:
+cannot open shared object file:
+No such file or directory
 ```
 <!-- .element: class="fragment" -->
 
@@ -628,7 +630,7 @@ Installing is copying files plus keeping an authoritative database:
 - Integrity verification (rpm -V): verifies files against their stored sha256 digests. If a file is modified, rpm -V alerts immediately.
 - Dependency protection (rpm -e --test): the system prevents accidental removal of libraries that other installed packages still rely upon.
 
---
+---
 
 ## DEB: Debian Distro Standard
 
@@ -695,6 +697,137 @@ Anatomy of a .deb file:
 
 --
 
+## Inside a DEB: Extraction
+
+```text
+$ dpkg-deb -x ocio_0.1.0_amd64.deb ./deb-extracted/
+$ find ./deb-extracted -type f
+./deb-extracted/usr/bin/ocio
+./deb-extracted/usr/share/applications/ocio.desktop
+./deb-extracted/usr/share/icons/hicolor/256x256/apps/ocio.png
+./deb-extracted/usr/share/icons/hicolor/scalable/apps/ocio.svg
+./deb-extracted/usr/share/metainfo/org.packathon.ocio.metainfo.xml
+```
+<!-- .element: class="fragment" -->
+
+Note:
+Extraction is the mirror of RPM's rpm2cpio | cpio -idmv:
+- dpkg-deb -x unpacks the data.tar member into the target directory, stripping the leading / from absolute paths.
+- The extracted ./deb-extracted/usr/bin/ocio is byte-identical to the built binary.
+- No dependency check, no database record, no scripts: extracting is just copying files, exactly as with RPM.
+- The control.tar member (metadata, scriptlets, md5sums) is not extracted by -x; use dpkg-deb -e to pull it out separately.
+- Shortcut: ar x ocio_0.1.0_amd64.deb data.tar.xz && tar -xJf data.tar.xz -C ./deb-extracted/ works without dpkg tools.
+
+--
+
+## Inside a DEB: Payload
+
+```text
+$ dpkg-deb -c ocio_0.1.0_amd64.deb
+drwxr-xr-x root/root         0 2026-01-15 10:00 ./
+drwxr-xr-x root/root         0 2026-01-15 10:00 ./usr/
+drwxr-xr-x root/root         0 2026-01-15 10:00 ./usr/bin/
+-rwxr-xr-x root/root    497664 2026-01-15 10:00 ./usr/bin/ocio
+-rw-r--r-- root/root       245 2026-01-15 10:00 ./usr/share/applications/ocio.desktop
+-rw-r--r-- root/root      1892 2026-01-15 10:00 ./usr/share/icons/hicolor/256x256/apps/ocio.png
+-rw-r--r-- root/root       612 2026-01-15 10:00 ./usr/share/icons/hicolor/scalable/apps/ocio.svg
+-rw-r--r-- root/root       847 2026-01-15 10:00 ./usr/share/metainfo/org.packathon.ocio.metainfo.xml
+```
+
+Note:
+dpkg-deb -c lists the data.tar contents without extracting:
+- /usr/bin/ocio: the binary, placed in a system directory already on $PATH.
+- .desktop + icons: desktop entry and icons so the desktop environment renders it in menus.
+- metainfo XML: AppStream metadata so GUI software centers (GNOME Software, Discover) can present descriptions, categories, and screenshots.
+- The payload is identical to the RPM payload: same files, same FHS layout. The difference is purely in the container format (ar + tar vs. cpio) and the metadata encoding (control file vs. RPM header).
+
+--
+
+## Inside a DEB: Metadata
+
+```text
+$ dpkg-deb -I ocio_0.1.0_amd64.deb
+ Package: ocio
+ Version: 0.1.0
+ Architecture: amd64
+ Maintainer: Michele Pagot <michele@pagot.dev>
+ Installed-Size: 1240
+ Depends: libc6 (>= 2.17), libgl1, libx11-6
+ Section: utils
+ Priority: optional
+ Description: Eye-tracking demo application
+  A minimal C99 application that tracks the mouse cursor
+  using OpenGL hardware acceleration.
+```
+<!-- .element: class="fragment" -->
+
+```text
+$ dpkg-deb -e ocio_0.1.0_amd64.deb ./deb-control/
+$ cat ./deb-control/control | grep Depends
+ Depends: libc6 (>= 2.17), libgl1, libx11-6
+```
+<!-- .element: class="fragment" -->
+
+Note:
+Control file inspection:
+- Look at Depends: libc6, libgl1, libx11-6. This is the package-level equivalent of the RPM's libOpenGL.so.0()(64bit) capability strings.
+- The difference in granularity: RPM declares SONAME-level capabilities (libOpenGL.so.0()(64bit)); DEB declares package names (libgl1). The solver maps package names to the actual libraries at resolution time.
+- Nobody wrote these lines manually: dpkg-shlibdeps scans the ELF binaries in the staging directory, consults each library's shlibs file, and populates ${shlibs:Depends} in the control file.
+- dpkg-deb -e extracts the control.tar member into a directory, exposing the control file, md5sums, and any maintainer scriptlets (postinst, prerm, postrm, prerm).
+
+--
+
+## DEB: Dependencies
+
+* **`dpkg-shlibdeps`**: Automated scan of staged ELF binaries
+* **`shlibs` files**: Each library package ships a `*.shlibs` file mapping SONAME → package + version
+* **`symbols` files**: Optional finer-grained per-symbol version constraints
+* **Generated contract**: Translates ELF `DT_NEEDED` → `Depends: ${shlibs:Depends}`
+
+Note:
+Runtime dependency management in Debian:
+- Nobody writes Depends: libc6 manually in debian/control. The line reads Depends: ${shlibs:Depends}, a substitution variable.
+- During the build, dh_shlibdeps (a debhelper wrapper around dpkg-shlibdeps) scans all ELF binaries in the staging directory.
+- For each DT_NEEDED entry, it looks up the corresponding shlibs file in /var/lib/dpkg/info/ (or the equivalent in the build chroot) to find which package provides that SONAME and what version constraint applies.
+- The dynamic duality is the same as RPM:
+  1. Standard linked libraries appear in DT_NEEDED: dpkg-shlibdeps reads them automatically and emits package dependencies.
+  2. Libraries loaded at runtime via dlopen() are invisible to dpkg-shlibdeps because they do not appear in the ELF dynamic section.
+- The shlibs file format: one line per SONAME, e.g. libOpenGL.so.0 libgl1 (>= 1.3.2). The symbols file (when present) provides per-symbol version constraints, enabling exact ABI tracking.
+
+--
+
+## After Install: Recorded & Guarded
+
+```text
+$ dpkg -S /usr/lib/x86_64-linux-gnu/libOpenGL.so.0
+libgl1: /usr/lib/x86_64-linux-gnu/libOpenGL.so.0
+```
+
+```text
+$ debsums ocio
+/usr/bin/ocio: MD5 sum is OK
+/usr/share/applications/ocio.desktop: MD5 sum is OK
+```
+<!-- .element: class="fragment" -->
+
+```text
+$ apt-get remove --dry-run libgl1
+The following packages will be REMOVED:
+  libgl1
+The following packages will also be REMOVED:
+  ocio
+```
+<!-- .element: class="fragment" -->
+
+Note:
+Installing is copying files plus keeping an authoritative database:
+- Ownership (dpkg -S): every file on the filesystem has a registered package owner, the Debian equivalent of rpm -qf.
+- Integrity verification (debsums): verifies files against their stored MD5 digests from the md5sums control file. If a file is modified, debsums reports the mismatch.
+- Dependency protection (apt-get remove --dry-run): the solver prevents accidental removal of libraries that other installed packages still depend on, mirroring rpm -e --test.
+- The dpkg database lives in /var/lib/dpkg/status; apt layers a repository index and a more sophisticated resolver (based on the same SAT principles as libsolv) on top.
+
+--
+
 ## Cooking a DEB
 
 * **Tool**: `dpkg-buildpackage` (from `dpkg-dev`) / `debuild`
@@ -704,6 +837,10 @@ Anatomy of a .deb file:
   * Drives build via `debian/rules` and Debhelper (`dh`)
   * Produces binary package (`.deb`) and changes file (`.changes`)
 
+<p class="fragment text-info" style="margin-top: 25px;">
+<strong>Two dialects, one format:</strong> the low-level recipe (skeleton + <code>dpkg-shlibdeps</code> + <code>dpkg-deb</code>) and the canonical debhelper recipe produce the same <code>ar</code> archive.
+</p>
+
 Note:
 How native DEBs are built:
 - In Debian, the recipe is not a single file like in RPM, but a dedicated debian/ directory inside the source tree.
@@ -711,6 +848,8 @@ How native DEBs are built:
 - Running dpkg-buildpackage -us -uc -b builds the binary package without signing source or changes files.
 - The build process is orchestrated by debian/rules, which delegates to the Debhelper sequencer (dh).
 - Artifacts produced: the binary package (.deb), the build log, and the .changes file declaring package upload metadata.
+- In the repository the canonical recipe lives in packaging/deb/debian/ (control, rules, changelog, source/format); build-deb.sh --mode debhelper links it into the source root and runs dpkg-buildpackage -us -uc -b -d.
+- The same build-deb.sh offers a second dialect, --mode frugal: no debhelper, the payload is staged into an FHS skeleton, md5sums and Installed-Size are computed by hand, and the archive is assembled with dpkg-deb. Same ar format, same reliance on dpkg-shlibdeps: two dialects, one format.
 
 --
 
@@ -1172,6 +1311,33 @@ Internal filesystem layout of Flatpak:
 
 --
 
+## Inside Flatpak: OSTree
+
+* **OSTree**: git for filesystem trees (content-addressed, SHA-256)
+* **Commit**: snapshot of a whole directory tree
+* **Ref**: named pointer to a commit, like a git branch
+* **Delta**: diff between two commits; client downloads only the change
+
+```text
+$ ostree --repo=repo log app/org.packathon.ocio/x86_64/master
+$ ostree --repo=repo static-delta generate --from=<old> --to=<new>
+```
+<!-- .element: class="fragment" -->
+
+<p class="fragment text-info" style="margin-top: 25px;">
+<strong>Why it matters:</strong> a Flatpak repo is just static files, so it can be served by any web server (GitHub Pages).
+</p>
+
+Note:
+OSTree is the storage engine underneath every Flatpak:
+- It is git, but the objects are filesystem contents, not source files. Every file, directory listing and commit is stored by its SHA-256 hash, so identical files are stored once (deduplication).
+- A commit is a snapshot of a complete directory tree. A ref is a plain-text pointer to a commit, exactly like a git branch. The Flatpak ref for our app is app/org.packathon.ocio/x86_64/master (app-id, arch, branch).
+- Deltas are the diff between two commits. --generate-static-deltas precomputes them so a client updating from v0.1.0 to v0.1.1 downloads only the changed files, not the whole app.
+- Because an archive-z2 repo is only static files (objects/, refs/, summary), any HTTP server can serve it. This is why our pages.yml workflow deploys the repo to GitHub Pages alongside the slides, and users get flatpak update for free.
+- Full hands-on walkthrough: ideas/OSTree_tutorial.md.
+
+--
+
 ## Permissions: Hole-Punching
 
 Not trusting the host requires explicit re-declaration of every capability:
@@ -1240,7 +1406,7 @@ Update capabilities are governed by the **channel**, not the file format:
 
 * **`.deb` / `.rpm` via repository**: Native OS updates (`apt upgrade`, `zypper dup`). <!-- .element: class="fragment" -->
 * **Manually installed package (`dpkg -i` / `rpm -i`)**: Orphaned artifact; no future security patches. <!-- .element: class="fragment" -->
-* **Flatpak via Flathub**: **OSTree** repository; block-level static deltas (atomic updates). <!-- .element: class="fragment" -->
+* **Flatpak via an OSTree repository** (Flathub or self-hosted on GitHub Pages): block-level static deltas, atomic updates. <!-- .element: class="fragment" -->
 * **AppImage**: Static by default; requires `.upd_info` in ELF header to enable `zsync` updates. <!-- .element: class="fragment" -->
 
 <p class="fragment text-danger" style="margin-top: 25px;">
@@ -1252,6 +1418,7 @@ The software lifecycle paradox:
 - A package format is just a static snapshot in time. An update mechanism is an ongoing maintenance relationship.
 - When a user downloads a .deb or .rpm from a GitHub release and runs dpkg -i or rpm -i, that package is orphaned: no repository index knows about it, and it will never be patched automatically by the system.
 - Flatpak solves this via OSTree: updates are content-addressed and downloaded as atomic binary deltas (only changed blocks are transferred).
+- The channel does not have to be Flathub: an OSTree repository is just a static file tree (commits + summaries in archive-z2 format). That is why the same mechanism works on GitHub Pages: every push to main produces a new signed commit, and the user picks it up with a plain flatpak update.
 - AppImage is completely standalone by default. Updating requires embedding a .upd_info section into the ELF binary pointing to a zsync control file on a remote server.
 - The fundamental security rule: shipping a binary without an update path means vulnerabilities remain on user machines indefinitely.
 
