@@ -2,8 +2,18 @@
 # =============================================================================
 # Build ocio RPM manually using rpmbuild (No CPack)
 #
-# Usage: build-rpm.sh [rpmbuild options] [-p|--pause]
-#   -p, --pause  Pause and wait for [Enter] before executing each step
+# Usage: build-rpm.sh --raylib-tarball <path> [rpmbuild options] [-p|--pause]
+#
+# Arguments:
+#   --raylib-tarball <path>
+#       (Mandatory) Path to pre-staged raylib source tarball (e.g. raylib-5.5.tar.gz).
+#       - Inside the builder container: pass '/raylib_vendoring/raylib-5.5.tar.gz'
+#       - On a local host: pre-download the tarball first:
+#           curl -sLo /path/to/raylib-5.5.tar.gz \
+#             https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz
+#           ./packaging/rpm/build-rpm.sh --raylib-tarball /path/to/raylib-5.5.tar.gz
+#   -p, --pause
+#       Pause and wait for [Enter] before executing each step
 #   All other arguments are passed through to rpmbuild.
 # =============================================================================
 set -euo pipefail
@@ -17,17 +27,37 @@ NAME="ocio"
 RAYLIB_VERSION="5.5"
 RPM_TOPDIR="${RPM_TOPDIR:-/tmp/rpmbuild}"
 
+RAYLIB_TARBALL=""
 PAUSE_MODE=false
 BUILD_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
+        --raylib-tarball)
+            if [ $# -lt 2 ]; then
+                echo "Error: --raylib-tarball requires a path argument" >&2
+                exit 1
+            fi
+            RAYLIB_TARBALL="$2"
+            shift 2
+            ;;
         -p|--pause) PAUSE_MODE=true; shift ;;
         -h|--help)
-            sed -n '4,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            sed -n '4,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *) BUILD_ARGS+=("$1"); shift ;;
     esac
 done
+
+if [ -z "${RAYLIB_TARBALL}" ]; then
+    echo "Error: --raylib-tarball <path> is mandatory." >&2
+    echo "Usage: $0 --raylib-tarball <path/to/raylib-${RAYLIB_VERSION}.tar.gz> [options]" >&2
+    exit 1
+fi
+
+if [ ! -f "${RAYLIB_TARBALL}" ]; then
+    echo "Error: raylib source tarball not found at '${RAYLIB_TARBALL}'" >&2
+    exit 1
+fi
 
 pause_prompt() {
     local prompt_msg="${1:-}"
@@ -65,11 +95,8 @@ cp "${SCRIPT_DIR}/ocio.spec" "${RPM_TOPDIR}/SPECS/"
 SYSTEM_RAYLIB="$(pkg-config --modversion raylib 2>/dev/null || true)"
 if [[ "${BUILD_ARGS[*]:-}" == *"--with vendored_raylib"* ]] || \
    [[ "${SYSTEM_RAYLIB}" != "${RAYLIB_VERSION}" && "${SYSTEM_RAYLIB}" != "${RAYLIB_VERSION}".* ]]; then
-    RAYLIB_SRC="${RPM_TOPDIR}/SOURCES/raylib-${RAYLIB_VERSION}.tar.gz"
-    if [ ! -f "${RAYLIB_SRC}" ]; then
-        echo "==> Staging raylib-${RAYLIB_VERSION} source tarball for hermetic/vendored build..."
-        curl -sLo "${RAYLIB_SRC}" "https://github.com/raysan5/raylib/archive/refs/tags/${RAYLIB_VERSION}.tar.gz"
-    fi
+    echo "==> Staging raylib-${RAYLIB_VERSION} source tarball from ${RAYLIB_TARBALL}..."
+    cp "${RAYLIB_TARBALL}" "${RPM_TOPDIR}/SOURCES/raylib-${RAYLIB_VERSION}.tar.gz"
     if [[ "${BUILD_ARGS[*]:-}" != *"--with vendored_raylib"* ]]; then
         echo "==> System raylib is '${SYSTEM_RAYLIB:-not installed}', spec needs ${RAYLIB_VERSION}: building with vendored raylib"
         BUILD_ARGS+=("--with" "vendored_raylib")

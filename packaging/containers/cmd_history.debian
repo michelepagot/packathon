@@ -1,19 +1,45 @@
 # === Build Recipes ===
-packaging/containers/build-package.sh
+packaging/build_ocio.sh
 packaging/deb/build-deb.sh
 packaging/appimage/build-appimage.sh
 packaging/flatpak/build-flatpak.sh
+
 cmake -S . -B build-debian -DCMAKE_BUILD_TYPE=Release && cmake --build build-debian -j$(nproc)
+
+export BU=build_debian_RAYLIB_MODE_FETCH
+cmake -S . -B $BU -DCMAKE_BUILD_TYPE=Release -DRAYLIB_MODE=FETCH && cmake --build $BU -j$(nproc)
+
+export BU=build_debian_RAYLIB_MODE_LOCAL
+tar -xf raylib_vendoring/raylib-5.5.tar.gz -C raylib_vendoring
+cmake -S . -B $BU -DCMAKE_BUILD_TYPE=Release -DRAYLIB_MODE=LOCAL -DRAYLIB_LOCAL=/src/raylib_vendoring/raylib-5.5 && cmake --build $BU -j$(nproc)
+
+export BU=build_debian_RAYLIB_MODE_SYSTEM
+apt-cache search raylib
+apt-cache search libraylib-dev
+apt-cache search libraylib
+apt search libraylib
+apt search raylib
+apt-get install libraylib-dev
+echo "deb http://deb.debian.org/debian unstable main" | tee /etc/apt/sources.list.d/unstable.list
+apt install -t unstable libraylib-dev
+dpkg -L libraylib-dev
+cmake -S . -B $BU -DCMAKE_BUILD_TYPE=Release -DRAYLIB_MODE=SYSTEM && cmake --build $BU -j$(nproc)
+
+cmake -S . -B build-debian-shared -DCMAKE_BUILD_TYPE=Release -DRAYLIB_SHARED=ON && cmake --build build-debian-shared -j$(nproc)
+cmake -S . -B build-debian-static -DCMAKE_BUILD_TYPE=Release -DRAYLIB_SHARED=OFF && cmake --build build-debian-static -j$(nproc)
+rm -rf build-*
 
 # === Foundations: Binary & Linker Inspection ===
 ./dist/ocio --version
-readelf -p .interp dist/ocio
-readelf -d dist/ocio | grep NEEDED
-ldd dist/ocio
-strings dist/ocio | grep -E "^GLIBC_2\." | sort -V | tail -n 5
+readelf -p .interp dist/cmake/ocio
+readelf -d dist/cmake/ocio | grep NEEDED
+readelf -h dist/cmake/ocio | grep -E 'Type:|Entry point'
+readelf -l dist/cmake/ocio | grep -A1 INTERP
+readelf -s dist/cmake/ocio | grep -E ' (main|_start)$'
+ldd dist/cmake/ocio
+strings dist/cmake/ocio | grep -E "^GLIBC_2\." | sort -V | tail -n 5
 
 # === Vanilla Walkthrough: Step-by-Step Dependency Resolution ===
-ocio
 apt-get update
 apt-get install -y --no-install-recommends libx11-6
 apt-get install -y --no-install-recommends libglx0

@@ -15,6 +15,9 @@ include(GNUInstallDirs)
 set(RAYLIB_MODE "FETCH" CACHE STRING "Where to get raylib: FETCH (download from GitHub), SYSTEM (use OS-installed package), or LOCAL (use pre-staged source directory)")
 set_property(CACHE RAYLIB_MODE PROPERTY STRINGS "FETCH" "SYSTEM" "LOCAL")
 
+# In case of RAYLIB_MODE=LOCAL
+set(RAYLIB_LOCAL "" CACHE PATH "Path to the local raylib source directory (required when RAYLIB_MODE=LOCAL)")
+
 option(RAYLIB_SHARED "Build/link raylib dynamically as a shared library" OFF)
 option(ENABLE_CPACK "Enable CPack packaging configuration" ON)
 
@@ -22,9 +25,17 @@ option(ENABLE_CPACK "Enable CPack packaging configuration" ON)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 if(RAYLIB_SHARED)
+  if(RAYLIB_MODE STREQUAL "SYSTEM")
+    set(raylib_USE_STATIC_LIBS OFF)
+  else()
     set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+  endif()
 else()
+  if(RAYLIB_MODE STREQUAL "SYSTEM")
+    set(raylib_USE_STATIC_LIBS ON)
+  else()
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  endif()
 endif()
 
 # Raylib dependency acquisition
@@ -36,19 +47,26 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME raylib-devel)
 
 if(RAYLIB_MODE STREQUAL "SYSTEM")
     message(STATUS "Searching for system-installed raylib ${RAYLIB_VERSION} (RAYLIB_MODE=SYSTEM)...")
+
     # EXACT: raylib's version file accepts any newer release, so without it a
     # distro raylib 6.0 would silently replace the 5.5 the code is written for
     find_package(raylib ${RAYLIB_VERSION} EXACT REQUIRED)
 elseif(RAYLIB_MODE STREQUAL "LOCAL")
-    message(STATUS "Using local pre-staged raylib source (RAYLIB_MODE=LOCAL)...")
-    if(EXISTS "${CMAKE_BINARY_DIR}/_deps/raylib-src/CMakeLists.txt")
-        add_subdirectory("${CMAKE_BINARY_DIR}/_deps/raylib-src" "${CMAKE_BINARY_DIR}/_deps/raylib-build" EXCLUDE_FROM_ALL)
-    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/build/_deps/raylib-src/CMakeLists.txt")
-        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/build/_deps/raylib-src" "${CMAKE_BINARY_DIR}/_deps/raylib-build" EXCLUDE_FROM_ALL)
-    else()
-        message(FATAL_ERROR "RAYLIB_MODE is set to LOCAL, but no raylib source found in ${CMAKE_BINARY_DIR}/_deps/raylib-src or ${CMAKE_CURRENT_SOURCE_DIR}/build/_deps/raylib-src. "
-                            "Please extract raylib source there before building.")
+    if(NOT DEFINED RAYLIB_LOCAL OR RAYLIB_LOCAL STREQUAL "")
+        message(FATAL_ERROR "RAYLIB_MODE is set to LOCAL, but the RAYLIB_LOCAL variable is not defined. "
+                            "Please configure it using: -DRAYLIB_LOCAL=/path/to/raylib")
     endif()
+    # If a relative path is passed, make it absolute relative to CMAKE_CURRENT_SOURCE_DIR
+    if(NOT IS_ABSOLUTE "${RAYLIB_LOCAL}")
+        set(RAYLIB_LOCAL "${CMAKE_CURRENT_SOURCE_DIR}/${RAYLIB_LOCAL}")
+    endif()
+    # Verify that CMakeLists.txt actually exists at the user-supplied path
+    if(NOT EXISTS "${RAYLIB_LOCAL}/CMakeLists.txt")
+        message(FATAL_ERROR "RAYLIB_LOCAL is set to '${RAYLIB_LOCAL}', but no CMakeLists.txt was found there. "
+                            "Please provide a valid path to the raylib source directory.")
+    endif()
+    message(STATUS "Using local raylib source from: ${RAYLIB_LOCAL}")
+    add_subdirectory("${RAYLIB_LOCAL}" "${CMAKE_BINARY_DIR}/_deps/raylib-build" EXCLUDE_FROM_ALL)
 elseif(RAYLIB_MODE STREQUAL "FETCH")
     include(FetchContent)
     message(STATUS "Fetching raylib from GitHub via FetchContent (${RAYLIB_VERSION})...")

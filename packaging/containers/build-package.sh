@@ -4,6 +4,7 @@ set -e
 # Configurable CMake options (with defaults)
 RAYLIB_MODE="${RAYLIB_MODE:-FETCH}"
 RAYLIB_SHARED="${RAYLIB_SHARED:-OFF}"
+RAYLIB_LOCAL="${RAYLIB_LOCAL:-}"
 DIST_DIR="${DIST_DIR:-/src/dist}"
 
 # CPack generator passed as first argument, or auto-detected by distro
@@ -19,6 +20,9 @@ fi
 echo "==> Building ocio with:"
 echo "    RAYLIB_MODE=${RAYLIB_MODE}"
 echo "    RAYLIB_SHARED=${RAYLIB_SHARED}"
+if [ -n "${RAYLIB_LOCAL}" ]; then
+    echo "    RAYLIB_LOCAL=${RAYLIB_LOCAL}"
+fi
 echo "    CPACK_GENERATOR=${GENERATOR}"
 
 # Isolated build in scratch space. RelWithDebInfo gives CPack the symbols for
@@ -34,7 +38,8 @@ ln -s /src "${SRC_DIR}"
 cmake -S "${SRC_DIR}" -B "${BUILD_DIR}" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DRAYLIB_MODE="${RAYLIB_MODE}" \
-    -DRAYLIB_SHARED="${RAYLIB_SHARED}"
+    -DRAYLIB_SHARED="${RAYLIB_SHARED}" \
+    ${RAYLIB_LOCAL:+-DRAYLIB_LOCAL="${RAYLIB_LOCAL}"}
 
 cmake --build "${BUILD_DIR}" --config RelWithDebInfo -j"$(nproc)"
 
