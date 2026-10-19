@@ -69,7 +69,7 @@ mv raylib-%{raylib_version} build/_deps/raylib-src
 
 %build
 %if %{with vendored_raylib}
-%cmake -DRAYLIB_MODE=LOCAL -DENABLE_CPACK=OFF
+%cmake -DRAYLIB_MODE=LOCAL -DRAYLIB_LOCAL=_deps/raylib-src -DENABLE_CPACK=OFF
 %else
 %cmake -DRAYLIB_MODE=SYSTEM -DENABLE_CPACK=OFF
 %endif

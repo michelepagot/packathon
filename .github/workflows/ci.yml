@@ -121,13 +121,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- Builder Image ---
+      # Builder Image
       # --rebuild only when the Containerfile itself changed in this PR;
       # otherwise pull the pre-built image from GHCR.
       - name: Setup openSUSE builder image
         run: ./packaging/containers/setup-builder.sh opensuse ${{ needs.filter.outputs.containers == 'true' && '--rebuild' || '' }}
 
-      # --- Build Modes in openSUSE Containers ---
+      # Build Modes in openSUSE Containers
       - name: "Build Mode: FETCH (Default, static raylib, CPack RPM & TGZ)"
         run: |
           rm -rf dist
@@ -135,6 +135,9 @@ jobs:
             -e RAYLIB_MODE=FETCH -e RAYLIB_SHARED=OFF \
             localhost/packathon-opensuse:builder \
             packaging/containers/build-package.sh
+
+      - name: "Verify static raylib linkage (openSUSE FETCH mode)"
+        run: |
           ls -la dist/
           # The builder also has the distro raylib-devel: static FETCH must not link it
           if readelf -d dist/ocio | grep 'NEEDED.*libraylib'; then
@@ -180,7 +183,13 @@ jobs:
             -e RAYLIB_SHARED=ON \
             localhost/packathon-opensuse:builder \
             packaging/containers/build-package.sh
+
+      - name: "Verify dynamic raylib linkage (openSUSE SHARED mode)"
+        run: |
           ls -la dist/
+          if ! readelf -d dist/ocio | grep 'NEEDED.*libraylib'; then
+            echo "SHARED build did not link a shared libraylib"; exit 1
+          fi
 
       # Uses the system raylib-devel if it matches the spec, vendored raylib otherwise
       - name: "Packaging Mode: Canonical manual rpmbuild (ocio.spec)"
@@ -188,11 +197,11 @@ jobs:
           rm -rf dist
           podman run --rm -v "$PWD:/src:Z" -w /src \
             localhost/packathon-opensuse:builder \
-            ./packaging/rpm/build-rpm.sh
-          ls -la dist/
+            ./packaging/rpm/build-rpm.sh --raylib-tarball /raylib_vendoring/raylib-5.5.tar.gz
 
       - name: Verify canonical manual RPM in pristine vanilla openSUSE Tumbleweed
         run: |
+          ls -la dist/
           RPM_FILE=$(ls dist/ocio-[0-9]*.x86_64.rpm | head -n1)
           echo "Testing canonical RPM: $RPM_FILE"
           podman run --rm -v "$PWD/$RPM_FILE:/ocio.rpm:ro,Z" \
@@ -234,7 +243,14 @@ jobs:
             -e RAYLIB_MODE=FETCH -e RAYLIB_SHARED=OFF \
             localhost/packathon-debian:builder \
             packaging/containers/build-package.sh
+
+      - name: "Verify static raylib linkage (Debian FETCH mode)"
+        run: |
           ls -la dist/
+          # Static FETCH must not link shared libraylib
+          if readelf -d dist/ocio | grep 'NEEDED.*libraylib'; then
+            echo "FETCH build linked a shared libraylib"; exit 1
+          fi
 
       - name: Verify CPack DEB in pristine vanilla Debian Bookworm
         run: |
@@ -244,12 +260,32 @@ jobs:
             debian:bookworm-slim \
             sh -c "apt-get update && apt-get install -y /ocio.deb && ocio --version && ocio --help"
 
+      - name: "Build Mode: SHARED (libraylib.so, TGZ only)"
+        run: |
+          rm -rf dist
+          # SHARED mode links libraylib.so, which is not installed into the
+          # package, so dpkg-shlibdeps cannot resolve it and DEB generation
+          # fails. Pass TGZ explicitly to skip the DEB generator here; the
+          # DEB is verified from the static FETCH build above.
+          podman run --rm -v "$PWD:/src:Z" -w /src \
+            -e RAYLIB_SHARED=ON \
+            localhost/packathon-debian:builder \
+            packaging/containers/build-package.sh TGZ
+
+      - name: "Verify dynamic raylib linkage (Debian SHARED mode)"
+        run: |
+          ls -la dist/
+          if ! readelf -d dist/ocio | grep 'NEEDED.*libraylib'; then
+            echo "SHARED build did not link a shared libraylib"; exit 1
+          fi
+
       - name: "Build Mode: LOCAL (Hermetic offline build with pre-staged raylib)"
         run: |
           rm -rf dist build
           git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git build/_deps/raylib-src
           podman run --rm -v "$PWD:/src:Z" -w /src \
             -e RAYLIB_MODE=LOCAL \
+            -e RAYLIB_LOCAL=/src/build/_deps/raylib-src \
             localhost/packathon-debian:builder \
             packaging/containers/build-package.sh
           rm -rf build
@@ -414,16 +450,31 @@ jobs:
             libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
             libxinerama-dev libwayland-dev libxkbcommon-dev rpm
 
-      - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build ocio
-        run: cmake --build build --config Release --parallel
-
-      - name: Test CLI flags
+      - name: Build ocio (RAYLIB_SHARED=OFF)
         run: |
-          ./build/bin/ocio --version
-          ./build/bin/ocio --help
+          cmake -B build-static -DCMAKE_BUILD_TYPE=Release -DRAYLIB_SHARED=OFF
+          cmake --build build-static --config Release --parallel
+
+      - name: Verify static binary and CLI flags
+        run: |
+          ./build-static/bin/ocio --version
+          ./build-static/bin/ocio --help
+          if readelf -d ./build-static/bin/ocio | grep 'NEEDED.*libraylib'; then
+            echo "Static build linked shared libraylib"; exit 1
+          fi
+
+      - name: Build ocio (RAYLIB_SHARED=ON)
+        run: |
+          cmake -B build-shared -DCMAKE_BUILD_TYPE=Release -DRAYLIB_SHARED=ON
+          cmake --build build-shared --config Release --parallel
+
+      - name: Verify shared binary and CLI flags
+        run: |
+          ./build-shared/bin/ocio --version
+          ./build-shared/bin/ocio --help
+          if ! readelf -d ./build-shared/bin/ocio | grep 'NEEDED.*libraylib'; then
+            echo "Shared build did not link shared libraylib"; exit 1
+          fi
 
   # ===========================================================================
   # Windows Sanity Build (MSVC)
