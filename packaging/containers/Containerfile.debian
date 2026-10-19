@@ -109,6 +109,13 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Stage raylib source tarball in dedicated vendoring folder for offline/hermetic builds
+ARG RAYLIB_VERSION=5.5
+ENV RAYLIB_VERSION=${RAYLIB_VERSION}
+RUN mkdir -p /raylib_vendoring && \
+    curl -sLo "/raylib_vendoring/raylib-${RAYLIB_VERSION}.tar.gz" \
+        "https://github.com/raysan5/raylib/archive/refs/tags/${RAYLIB_VERSION}.tar.gz"
+
 # Install appimagetool (pre-extracted to run inside container without FUSE)
 # Dynamically detect architecture (x86_64 vs aarch64) to support multi-platform builder images
 RUN ARCH=$(uname -m) && \

@@ -36,11 +36,23 @@ concurrency:
 
 jobs:
   # ===========================================================================
-  # 1. openSUSE: Builder Image, All openSUSE Build Modes & RPM Verification
+  # Path Filter: shared gate for all downstream jobs
   # ===========================================================================
-  test-opensuse-containers-and-modes:
-    name: openSUSE (Builder Image, Build Modes & RPM Verification)
+  # Runs dorny/paths-filter once so every build job can reference the same
+  # outputs via needs.filter.outputs.*. On non-PR events (push, dispatch)
+  # all outputs are forced to "true" so no job is ever skipped.
+  # ===========================================================================
+  filter:
+    name: Detect changed paths
     runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      rpm: ${{ steps.filter.outputs.rpm }}
+      containers: ${{ steps.filter.outputs.containers }}
+      meta: ${{ steps.filter.outputs.meta }}
+      deb: ${{ steps.filter.outputs.deb }}
+      appimage: ${{ steps.filter.outputs.appimage }}
+      flatpak: ${{ steps.filter.outputs.flatpak }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,30 +63,69 @@ jobs:
         uses: dorny/paths-filter@v3
         with:
           filters: |
+            # Application source: any change here affects every build job
             app:
               - 'src/**'
               - 'CMakeLists.txt'
+            # RPM packaging recipe: changes affect the openSUSE rpmbuild step
             rpm:
               - 'packaging/rpm/**'
+            # Builder Containerfiles: changes require a --rebuild of the image
             containers:
               - 'packaging/containers/**'
+            # Desktop entry, icons, metainfo: changes affect package payload
             meta:
               - 'packaging/ocio.desktop'
               - 'packaging/icons/**'
               - 'packaging/org.packathon.ocio.metainfo.xml'
+            # DEB packaging recipe: changes affect the Debian debhelper/frugal steps
+            deb:
+              - 'packaging/deb/**'
+            # AppImage recipe: changes affect the AppImage build step
+            appimage:
+              - 'packaging/appimage/**'
+            # Flatpak manifest: changes affect the Flatpak bundle build
+            flatpak:
+              - 'packaging/flatpak/**'
 
-      - name: Skip if no relevant changes
-        if: >-
-          github.event_name == 'pull_request' &&
-          steps.filter.outputs.app != 'true' &&
-          steps.filter.outputs.rpm != 'true' &&
-          steps.filter.outputs.containers != 'true' &&
-          steps.filter.outputs.meta != 'true'
-        run: exit 0
+      - name: Force all filters true for non-PR events
+        if: github.event_name != 'pull_request'
+        run: |
+          # On push/dispatch the filter step is skipped, so outputs would be
+          # empty. Force them to "true" so downstream jobs always run.
+          echo "app=true" >> "$GITHUB_OUTPUT"
+          echo "rpm=true" >> "$GITHUB_OUTPUT"
+          echo "containers=true" >> "$GITHUB_OUTPUT"
+          echo "meta=true" >> "$GITHUB_OUTPUT"
+          echo "deb=true" >> "$GITHUB_OUTPUT"
+          echo "appimage=true" >> "$GITHUB_OUTPUT"
+          echo "flatpak=true" >> "$GITHUB_OUTPUT"
+
+  # ===========================================================================
+  # openSUSE: Builder Image, All openSUSE Build Modes & RPM Verification
+  # ===========================================================================
+  test-opensuse-containers-and-modes:
+    name: openSUSE (Builder Image, Build Modes & RPM Verification)
+    runs-on: ubuntu-latest
+    # Job-level gate: skip the entire job on PRs that touch none of the
+    # paths this job builds against. Without this, a step-level "exit 0"
+    # only exits one step and every subsequent build step still runs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.filter.outputs.app == 'true' ||
+      needs.filter.outputs.rpm == 'true' ||
+      needs.filter.outputs.containers == 'true' ||
+      needs.filter.outputs.meta == 'true'
+    needs: filter
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       # --- Builder Image ---
+      # --rebuild only when the Containerfile itself changed in this PR;
+      # otherwise pull the pre-built image from GHCR.
       - name: Setup openSUSE builder image
-        run: ./packaging/containers/setup-builder.sh opensuse ${{ steps.filter.outputs.containers == 'true' && '--rebuild' || '' }}
+        run: ./packaging/containers/setup-builder.sh opensuse ${{ needs.filter.outputs.containers == 'true' && '--rebuild' || '' }}
 
       # --- Build Modes in openSUSE Containers ---
       - name: "Build Mode: FETCH (Default, static raylib, CPack RPM & TGZ)"
@@ -149,51 +200,31 @@ jobs:
             sh -c "zypper --non-interactive in --allow-unsigned-rpm /ocio.rpm && ocio --version"
 
   # ===========================================================================
-  # 2. Debian: Builder Image, All Debian Build Modes & DEB/AppImage Verification
+  # Debian: Builder Image, All Debian Build Modes & DEB/AppImage Verification
   # ===========================================================================
   test-debian-containers-and-modes:
     name: Debian (Builder Image, Build Modes, DEB, AppImage & Flatpak Verification)
     runs-on: ubuntu-latest
+    # Job-level gate: skip the entire job on PRs that touch none of the
+    # paths this job builds against.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.filter.outputs.app == 'true' ||
+      needs.filter.outputs.deb == 'true' ||
+      needs.filter.outputs.appimage == 'true' ||
+      needs.filter.outputs.flatpak == 'true' ||
+      needs.filter.outputs.containers == 'true' ||
+      needs.filter.outputs.meta == 'true'
+    needs: filter
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Detect changed paths
-        if: github.event_name == 'pull_request'
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            app:
-              - 'src/**'
-              - 'CMakeLists.txt'
-            deb:
-              - 'packaging/deb/**'
-            appimage:
-              - 'packaging/appimage/**'
-            flatpak:
-              - 'packaging/flatpak/**'
-            containers:
-              - 'packaging/containers/**'
-            meta:
-              - 'packaging/ocio.desktop'
-              - 'packaging/icons/**'
-              - 'packaging/org.packathon.ocio.metainfo.xml'
-
-      - name: Skip if no relevant changes
-        if: >-
-          github.event_name == 'pull_request' &&
-          steps.filter.outputs.app != 'true' &&
-          steps.filter.outputs.deb != 'true' &&
-          steps.filter.outputs.appimage != 'true' &&
-          steps.filter.outputs.flatpak != 'true' &&
-          steps.filter.outputs.containers != 'true' &&
-          steps.filter.outputs.meta != 'true'
-        run: exit 0
-
       # --- Builder Image ---
+      # --rebuild only when the Containerfile itself changed in this PR;
+      # otherwise pull the pre-built image from GHCR.
       - name: Setup Debian builder image
-        run: ./packaging/containers/setup-builder.sh debian ${{ steps.filter.outputs.containers == 'true' && '--rebuild' || '' }}
+        run: ./packaging/containers/setup-builder.sh debian ${{ needs.filter.outputs.containers == 'true' && '--rebuild' || '' }}
 
       # --- Build Modes in Debian Containers ---
       - name: "Build Mode: FETCH (Default, static raylib, CPack DEB & TGZ)"
@@ -291,7 +322,7 @@ jobs:
       #       sh -c "flatpak install -y --user /dist/ocio.flatpak && flatpak run org.packathon.ocio --version"
 
   # ===========================================================================
-  # 3. Flatpak Packaging
+  # Flatpak Packaging
   # ===========================================================================
   test-flatpak:
     name: Flatpak Bundle Build
@@ -299,28 +330,16 @@ jobs:
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
       options: --privileged
+    # Job-level gate: skip the entire job on PRs that touch neither the
+    # application source nor the Flatpak manifest.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.filter.outputs.app == 'true' ||
+      needs.filter.outputs.flatpak == 'true'
+    needs: filter
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Detect changed paths
-        if: github.event_name == 'pull_request'
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            app:
-              - 'src/**'
-              - 'CMakeLists.txt'
-            flatpak:
-              - 'packaging/flatpak/**'
-
-      - name: Skip if no relevant changes
-        if: >-
-          github.event_name == 'pull_request' &&
-          steps.filter.outputs.app != 'true' &&
-          steps.filter.outputs.flatpak != 'true'
-        run: exit 0
 
       - name: Cache Flatpak Builder
         uses: actions/cache@v4
@@ -370,30 +389,21 @@ jobs:
           ostree --repo=ostree-repo log app/org.packathon.ocio/x86_64/master
 
   # ===========================================================================
-  # 4. Host Sanity Build
+  # Host Sanity Build
   # ===========================================================================
   test-host-sanity:
     name: Host Sanity Build (Ubuntu)
     runs-on: ubuntu-latest
+    # Job-level gate: skip on PRs that do not touch application source.
+    # This job compiles ocio directly on the Ubuntu runner (no container),
+    # so only src/ and CMakeLists.txt changes are relevant.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.filter.outputs.app == 'true'
+    needs: filter
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Detect changed paths
-        if: github.event_name == 'pull_request'
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            app:
-              - 'src/**'
-              - 'CMakeLists.txt'
-
-      - name: Skip if no relevant changes
-        if: >-
-          github.event_name == 'pull_request' &&
-          steps.filter.outputs.app != 'true'
-        run: exit 0
 
       - name: Install system dependencies
         run: |
@@ -416,30 +426,21 @@ jobs:
           ./build/bin/ocio --help
 
   # ===========================================================================
-  # 5. Windows Sanity Build (MSVC)
+  # Windows Sanity Build (MSVC)
   # ===========================================================================
   test-windows:
     name: Windows Build (MSVC)
     runs-on: windows-latest
+    # Job-level gate: skip on PRs that do not touch application source.
+    # This job compiles ocio with MSVC on a bare Windows runner,
+    # so only src/ and CMakeLists.txt changes are relevant.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.filter.outputs.app == 'true'
+    needs: filter
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Detect changed paths
-        if: github.event_name == 'pull_request'
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            app:
-              - 'src/**'
-              - 'CMakeLists.txt'
-
-      - name: Skip if no relevant changes
-        if: >-
-          github.event_name == 'pull_request' &&
-          steps.filter.outputs.app != 'true'
-        run: exit 0
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -455,30 +456,21 @@ jobs:
           }
 
   # ===========================================================================
-  # 6. macOS Sanity Build (Apple Silicon)
+  # macOS Sanity Build (Apple Silicon)
   # ===========================================================================
   test-macos:
     name: macOS Build (Apple Silicon)
     runs-on: macos-14
+    # Job-level gate: skip on PRs that do not touch application source.
+    # This job compiles ocio with Clang on a bare macOS runner,
+    # so only src/ and CMakeLists.txt changes are relevant.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.filter.outputs.app == 'true'
+    needs: filter
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Detect changed paths
-        if: github.event_name == 'pull_request'
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            app:
-              - 'src/**'
-              - 'CMakeLists.txt'
-
-      - name: Skip if no relevant changes
-        if: >-
-          github.event_name == 'pull_request' &&
-          steps.filter.outputs.app != 'true'
-        run: exit 0
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
