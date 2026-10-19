@@ -24,14 +24,19 @@ Runs on every pull request and push to the `main` branch when source code, packa
 
 - **Concurrency & Resource Management**:
   - Uses `concurrency: group: ci-${{ github.ref }}, cancel-in-progress: ${{ github.event_name == 'pull_request' }}` to terminate superseded runs on pull requests while allowing branch push runs to finish in order.
-  - Path filters ignore unrelated documentation (`docs/**`), demo scripts, devcontainer definitions, and talk slides.
+  - Top-level `paths-ignore` excludes unrelated documentation (`docs/**`), other workflow files, `.gitignore`, `LICENSE`, `*.png`, and `.devcontainer/**` so the workflow does not trigger at all for those changes.
+- **Path Filtering (shared `filter` job)**:
+  - A dedicated `filter` job runs `dorny/paths-filter@v3` once and exposes outputs (`app`, `rpm`, `containers`, `meta`, `deb`, `appimage`, `flatpak`) to all downstream jobs via `needs.filter.outputs.*`.
+  - On non-PR events (push, `workflow_dispatch`) all outputs are forced to `true` so no job is ever skipped.
+  - Each build job has a **job-level `if:`** condition that references the shared filter outputs. If none of the job's relevant paths changed, the entire job is skipped (not just a single step). This prevents wasted runner time on PRs that only touch, e.g., `packaging/containers/**` (which should only run the openSUSE and Debian container jobs, not the Flatpak, Host, Windows, or macOS jobs).
 - **Jobs**:
-  - `test-opensuse-containers-and-modes`: Sets up openSUSE builder image using `./packaging/containers/setup-builder.sh opensuse` (pulling pre-built GHCR image with automatic local `podman build` fallback). Exercises build modes (`FETCH`, `SYSTEM_STUB`, `SYSTEM_PKG`) and verifies CPack RPM and source/binary tarballs.
-  - `test-debian-containers-and-modes`: Sets up Debian builder image using `./packaging/containers/setup-builder.sh debian`. Exercises build modes (`FETCH`, `SYSTEM_STUB`, `SYSTEM_PKG`) and verifies CPack DEB and source/binary tarballs.
-  - `test-flatpak`: Builds the Flatpak manifest with `flatpak-builder` inside a container and exports an OSTree repository, verifying Flatpak buildability with cache reuse (`.flatpak-builder`).
-  - `test-host-sanity`: Compiles `ocio` on Ubuntu host (`Release` configuration) using default GCC compiler, verifies CLI flags (`--help`, `--version`, invalid arguments).
-  - `test-windows`: Builds `ocio` with MSVC in parallel (`--parallel`), runs CLI smoke tests.
-  - `test-macos`: Builds `ocio` with Clang on Apple Silicon (`macos-latest`) in parallel (`--parallel`), runs CLI smoke tests.
+  - `filter`: Shared path-detection gate. Runs `dorny/paths-filter@v3` once; all other jobs depend on it.
+  - `test-opensuse-containers-and-modes`: Skipped unless `app`, `rpm`, `containers`, or `meta` changed. Sets up openSUSE builder image using `./packaging/containers/setup-builder.sh opensuse` (pulling pre-built GHCR image with automatic local `podman build` fallback; `--rebuild` only when `containers` changed). Exercises build modes (`FETCH`, `SHARED`) and verifies CPack RPM and canonical rpmbuild in vanilla Tumbleweed.
+  - `test-debian-containers-and-modes`: Skipped unless `app`, `deb`, `appimage`, `flatpak`, `containers`, or `meta` changed. Sets up Debian builder image using `./packaging/containers/setup-builder.sh debian`. Exercises build modes (`FETCH`, `LOCAL`), packaging modes (debhelper, frugal), AppImage, and Flatpak, verifying each in vanilla Debian Bookworm.
+  - `test-flatpak`: Skipped unless `app` or `flatpak` changed. Builds the Flatpak manifest with `flatpak-builder` inside a container and exports an OSTree repository, verifying Flatpak buildability with cache reuse (`.flatpak-builder`).
+  - `test-host-sanity`: Skipped unless `app` changed. Compiles `ocio` on Ubuntu host (`Release` configuration) using default GCC compiler, verifies CLI flags (`--help`, `--version`).
+  - `test-windows`: Skipped unless `app` changed. Builds `ocio` with MSVC in parallel (`--parallel`), runs CLI smoke tests.
+  - `test-macos`: Skipped unless `app` changed. Builds `ocio` with Clang on Apple Silicon (`macos-14`) in parallel (`--parallel`), runs CLI smoke tests.
 
 ### 2. Releases (`release.yml`)
 
@@ -51,13 +56,16 @@ Triggered automatically upon pushing a release tag (e.g., `git tag v0.1.0 && git
 
 ### 3. Container Builders (`containers.yml`)
 
-Maintains and publishes the official developer/builder container images to GHCR:
+Maintains and publishes the official developer/builder and demo container images to GHCR:
 - `ghcr.io/michelepagot/packathon/opensuse-builder:latest`
 - `ghcr.io/michelepagot/packathon/debian-builder:latest`
+- `ghcr.io/michelepagot/packathon/opensuse-demo:latest`
+- `ghcr.io/michelepagot/packathon/debian-demo:latest`
 
-- **Triggers**: Changes to `packaging/containers/**` pushed to `main`, or manual trigger via `workflow_dispatch`.
+- **Triggers**: Changes to `packaging/containers/**` pushed to `main`, tag pushes (`v*`), weekly cron (Monday 04:00 UTC), or manual trigger via `workflow_dispatch`.
 - **Concurrency**: `concurrency: group: containers-${{ github.ref }}, cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
-- **Optimization**: Uses Podman with layer caching (`cache-from` / `cache-to`) to minimize rebuild times.
+- **Optimization**: Uses Docker Buildx with layer caching (`cache-from` / `cache-to`) to minimize rebuild times.
+- **Known limitation**: Both the demo (`vanilla-demo`) and builder (`builder`) targets live in the same Containerfile. Any change to the file triggers all 8 matrix jobs (4 images x 2 arches), even if only the builder stage changed. Splitting into per-target Containerfiles would allow finer-grained path filtering.
 
 ### 4. GitHub Pages & Flatpak OSTree (`pages.yml`)
 

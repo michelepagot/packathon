@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # 1. Linux x86_64: Standalone binary (.tar.gz), .deb, .rpm, .AppImage (Containerized)
+  # Linux x86_64: Standalone binary (.tar.gz), .deb, .rpm, .AppImage (Containerized)
   # ---------------------------------------------------------------------------
   build-linux:
     name: Linux x86_64 (Tarball, DEB, RPM, AppImage via Containers)
@@ -96,7 +96,7 @@ jobs:
           path: artifacts/*
 
   # ---------------------------------------------------------------------------
-  # 2. Windows x86_64: Native executable in .zip
+  # Windows x86_64: Native executable in .zip
   # ---------------------------------------------------------------------------
   build-windows:
     name: Windows x86_64 (ZIP)
@@ -127,7 +127,7 @@ jobs:
           path: artifacts/*
 
   # ---------------------------------------------------------------------------
-  # 3. macOS ARM64 (Apple Silicon): Native executable in .tar.gz
+  # macOS ARM64 (Apple Silicon): Native executable in .tar.gz
   # ---------------------------------------------------------------------------
   build-macos:
     name: macOS ARM64 (Tarball)
@@ -157,7 +157,7 @@ jobs:
           path: artifacts/*
 
   # ---------------------------------------------------------------------------
-  # 4. Flatpak: Sandboxed .flatpak bundle
+  # Flatpak: Sandboxed .flatpak bundle
   # ---------------------------------------------------------------------------
   build-flatpak:
     name: Flatpak Bundle
@@ -189,7 +189,7 @@ jobs:
           path: artifacts/*
 
   # ---------------------------------------------------------------------------
-  # 5. Publish all artifacts to GitHub Release
+  # Publish all artifacts to GitHub Release
   # ---------------------------------------------------------------------------
   publish-release:
     name: Publish Release Artifacts

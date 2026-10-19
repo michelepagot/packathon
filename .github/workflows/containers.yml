@@ -4,12 +4,19 @@ name: Container Images
   push:
     branches: [ main ]
     tags: [ 'v*' ]
-    # Tag pushes ignore path filters, so every release gets semver-tagged images
+    # Only trigger when Containerfiles or this workflow change.
+    # Tag pushes ignore path filters, so every release gets semver-tagged images.
+    # NOTE: both demo and builder targets share the same Containerfile, so any
+    # change to the file triggers all 8 matrix jobs (4 images x 2 arches).
+    # Splitting into per-target files would allow finer-grained filtering.
     paths:
       - 'packaging/containers/**'
       - '.github/workflows/containers.yml'
   pull_request:
     branches: [ main ]
+    # Same path filter as push: only Containerfile or workflow changes trigger
+    # the build matrix. On PRs the images are built locally and smoke-tested
+    # but NOT pushed to GHCR (no credentials, no merge job).
     paths:
       - 'packaging/containers/**'
       - '.github/workflows/containers.yml'
