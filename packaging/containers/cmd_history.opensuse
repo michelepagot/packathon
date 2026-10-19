@@ -63,6 +63,10 @@ zypper remove ocio
 ./packaging/rpm/demo-rpm.sh --bin /src/dist/cmake/ocio --rpm /src/dist/ocio-0.1.0-1.x86_64.rpm
 
 # === Route 2: AppImage Mechanics ===
+# Shared-raylib A/B test: linuxdeploy (scans DT_NEEDED, bundles libraylib.so)
+BUILD_DIR=/src/build-try-shared OUTPUT_DIR=/src/dist-try RAYLIB_SHARED=ON packaging/appimage/build-appimage.sh --method linuxdeploy
+find /src/build-try-shared/AppDir/usr/lib -name "libraylib*"
+readelf -d /src/build-try-shared/AppDir/usr/bin/ocio | grep -E "RUNPATH|NEEDED"
 file dist/ocio-x86_64.AppImage
 dist/ocio-x86_64.AppImage --version
 xxd -l 96 -d dist/ocio-x86_64.AppImage
