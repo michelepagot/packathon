@@ -23,6 +23,10 @@ apt-get install libraylib-dev
 echo "deb http://deb.debian.org/debian unstable main" | tee /etc/apt/sources.list.d/unstable.list
 apt install -t unstable libraylib-dev
 dpkg -L libraylib-dev
+
+ls /var/lib/dpkg/info/*.shlibs
+cat /var/lib/dpkg/info/libc6:amd64.shlibs
+
 cmake -S . -B $BU -DCMAKE_BUILD_TYPE=Release -DRAYLIB_MODE=SYSTEM && cmake --build $BU -j$(nproc)
 
 cmake -S . -B build-debian-shared -DCMAKE_BUILD_TYPE=Release -DRAYLIB_SHARED=ON && cmake --build build-debian-shared -j$(nproc)
@@ -57,6 +61,10 @@ apt-get update && apt-get install -y ./dist/ocio_0.1.0_amd64.deb
 dpkg --verify ocio
 
 # === Route 2: AppImage Mechanics ===
+# Shared-raylib A/B test: linuxdeploy (scans DT_NEEDED, bundles libraylib.so)
+BUILD_DIR=/src/build-try-shared OUTPUT_DIR=/src/dist-try RAYLIB_SHARED=ON packaging/appimage/build-appimage.sh --method linuxdeploy
+find /src/build-try-shared/AppDir/usr/lib -name "libraylib*"
+readelf -d /src/build-try-shared/AppDir/usr/bin/ocio | grep -E "RUNPATH|NEEDED"
 file dist/ocio-x86_64.AppImage
 dist/ocio-x86_64.AppImage --version
 xxd -l 96 -d dist/ocio-x86_64.AppImage

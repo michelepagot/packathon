@@ -63,10 +63,11 @@ jobs:
         uses: dorny/paths-filter@v3
         with:
           filters: |
-            # Application source: any change here affects every build job
+            # Application source and CI workflow: any change here affects every build job
             app:
               - 'src/**'
               - 'CMakeLists.txt'
+              - '.github/workflows/ci.yml'
             # RPM packaging recipe: changes affect the openSUSE rpmbuild step
             rpm:
               - 'packaging/rpm/**'
