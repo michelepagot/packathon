@@ -35,7 +35,6 @@ EOF
 normalize_cpack_generators() {
     local input="$1"
     local IFS=';,'
-    local gens=()
     read -ra raw_gens <<< "${input}"
     local normalized=()
     for gen in "${raw_gens[@]}"; do

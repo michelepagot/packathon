@@ -142,7 +142,7 @@ if [ "${MODE}" = "debhelper" ]; then
     # dpkg-buildpackage places output in parent directory (${REPO_ROOT}/..)
     BUILT_DEB="${REPO_ROOT}/../${DEB_FILENAME}"
     if [ ! -f "${BUILT_DEB}" ]; then
-        BUILT_DEB="$(ls -t "${REPO_ROOT}/../${PACKAGE_NAME}_"*"_${ARCH}.deb" 2>/dev/null | head -n 1 || true)"
+        BUILT_DEB="$(find "${REPO_ROOT}/.." -maxdepth 1 -name "${PACKAGE_NAME}_*_${ARCH}.deb" -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2- || true)"
     fi
 
     if [ -f "${BUILT_DEB}" ]; then

@@ -7,9 +7,17 @@ RAYLIB_SHARED="${RAYLIB_SHARED:-OFF}"
 RAYLIB_LOCAL="${RAYLIB_LOCAL:-}"
 DIST_DIR="${DIST_DIR:-/src/dist}"
 
-# CPack generator passed as first argument, or auto-detected by distro
-GENERATOR="${1:-}"
-if [ -z "$GENERATOR" ]; then
+# CPack generator passed as first argument, or auto-detected by distro.
+# --no-cpack skips CPack entirely (binary-only build).
+GENERATOR=""
+NO_CPACK=false
+for arg in "$@"; do
+    case "$arg" in
+        --no-cpack) NO_CPACK=true ;;
+        *)          GENERATOR="$arg" ;;
+    esac
+done
+if [ "$NO_CPACK" = false ] && [ -z "$GENERATOR" ]; then
     if [ -f /etc/debian_version ]; then
         GENERATOR="TGZ;DEB"
     else
@@ -23,7 +31,11 @@ echo "    RAYLIB_SHARED=${RAYLIB_SHARED}"
 if [ -n "${RAYLIB_LOCAL}" ]; then
     echo "    RAYLIB_LOCAL=${RAYLIB_LOCAL}"
 fi
-echo "    CPACK_GENERATOR=${GENERATOR}"
+if [ "$NO_CPACK" = true ]; then
+    echo "    CPACK=off"
+else
+    echo "    CPACK_GENERATOR=${GENERATOR}"
+fi
 
 # Isolated build in scratch space. RelWithDebInfo gives CPack the symbols for
 # the ocio-debuginfo / ocio-dbgsym packages. CPack RPM rewrites debug source
@@ -44,10 +56,12 @@ cmake -S "${SRC_DIR}" -B "${BUILD_DIR}" \
 cmake --build "${BUILD_DIR}" --config RelWithDebInfo -j"$(nproc)"
 
 cd "${BUILD_DIR}"
-cpack -G "${GENERATOR}"
+if [ "$NO_CPACK" = false ]; then
+    cpack -G "${GENERATOR}" || echo "WARNING: CPack failed (rc=$?), continuing to copy binary"
+fi
 
 mkdir -p "${DIST_DIR}"
-cp -f *.tar.gz *.rpm *.deb *.ddeb "${DIST_DIR}/" 2>/dev/null || true
+cp -f -- *.tar.gz *.rpm *.deb *.ddeb "${DIST_DIR}/" 2>/dev/null || true
 cp -f bin/ocio "${DIST_DIR}/" 2>/dev/null || true
 
 echo "==> Generated artifacts in ${DIST_DIR}:"

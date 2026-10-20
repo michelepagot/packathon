@@ -222,7 +222,6 @@ OS_ID="unknown"
 OS_LIKE=""
 IS_DEBIAN=false
 IS_OPENSUSE=false
-IS_FEDORA=false
 
 if [ -f /etc/os-release ]; then
     # shellcheck disable=SC1091
@@ -233,12 +232,10 @@ if [ -f /etc/os-release ]; then
     case "${OS_ID}" in
         debian|ubuntu|linuxmint|pop) IS_DEBIAN=true ;;
         opensuse*|sles)             IS_OPENSUSE=true ;;
-        fedora|rhel|centos|rocky)   IS_FEDORA=true ;;
     esac
     case "${OS_LIKE}" in
         *debian*)        IS_DEBIAN=true ;;
         *suse*)          IS_OPENSUSE=true ;;
-        *fedora*|*rhel*) IS_FEDORA=true ;;
     esac
 fi
 
@@ -247,8 +244,6 @@ echo -e "Operating System : ${BOLD}${OS_NAME}${RESET} (ID: ${OS_ID}, LIKE: ${OS_
 # Check FUSE availability & fusermount binary on PATH
 HAVE_DEV_FUSE=false
 DEV_FUSE_WRITABLE=false
-HAVE_FUSERMOUNT=false
-HAVE_FUSERMOUNT3=false
 FUSERMOUNT_BIN=""
 FUSERMOUNT_VERSION=""
 FUSE_CAPABILITIES=""
@@ -261,10 +256,8 @@ if [ -e /dev/fuse ]; then
 fi
 
 if command -v fusermount3 >/dev/null 2>&1; then
-    HAVE_FUSERMOUNT3=true
     FUSERMOUNT_BIN="$(command -v fusermount3)"
 elif command -v fusermount >/dev/null 2>&1; then
-    HAVE_FUSERMOUNT=true
     FUSERMOUNT_BIN="$(command -v fusermount)"
 fi
 
@@ -424,7 +417,7 @@ echo "Explanation: Every AppImage begins with an ELF executable runtime stub."
 echo "The stub is a self-sufficient static-pie binary (compiled with musl libc"
 echo "and squashfuse) responsible for mounting the payload and launching AppRun."
 echo "To allow instant format detection without parsing megabytes of SquashFS,"
-echo "AppImage Type 2 embeds 'AI\\x02' into the unused EI_PAD field of the ELF header."
+printf '%s\n' "AppImage Type 2 embeds 'AI\\x02' into the unused EI_PAD field of the ELF header."
 
 if [ -n "${APPIMAGE_CANDIDATE}" ]; then
     if [ "${HAVE_FILE}" = true ] || [ "${DRY_RUN}" = true ]; then
