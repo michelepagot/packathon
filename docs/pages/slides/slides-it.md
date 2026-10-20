@@ -183,8 +183,8 @@ Sotto il cofano:
    (Contrasto: se il percorso dell'interprete non esistesse sul disco, execve fallirebbe subito nel kernel con ENOENT:
   "cannot execute: required file not found").
 3. Dynamic Linker (`ld.so` in userspace): scansiona `DT_NEEDED` nell'ordine di ricerca
-   (RPATH -> LD_LIBRARY_PATH -> RUNPATH -> /etc/ld.so.cache -> /lib64).
-   Non trovando `libOpenGL.so.0` dopo i vari tentativi `openat()`, stampa l'errore e invoca la syscall `exit_group(127)`.
+    (RPATH -> LD_LIBRARY_PATH -> RUNPATH -> /etc/ld.so.cache -> /lib64).
+    Non trovando `libOpenGL.so.0` dopo i vari tentativi `openat()`, stampa l'errore e invoca la syscall `exit_group(127)`.
 4. `main()`: non viene mai raggiunto.
 
 Comando da mostrare:
@@ -489,21 +489,34 @@ Come si costruisce un RPM nativo:
 
 --
 
-## .spec: Sezioni
+## .spec: Preambolo
 
-* **Preambolo**: `Name`, `Version`, `Release`, `License`, `Source0`
-* **`%prep`**: Scompattamento sorgenti e applicazione patch (`%autosetup`)
-* **`%build`**: Compilazione applicazione (`%cmake`, `%cmake_build`)
-* **`%install`**: Staging dei file nella directory `BUILDROOT` (`%cmake_install`)
-* **`%files`**: Elenco dei file impacchettati nel payload CPIO
+* **Preambolo**
+* **NVR** = `Name` + `Version` + `Release` &rarr; il nome file `.rpm`
 
 Note:
-La struttura di uno spec file:
-- Preambolo: Metadati del pacchetto, licenza, URL e archivi sorgenti.
-- %prep: Prepara l'albero di build, solitamente scompattando i tarball con %autosetup.
-- %build: Invoca il sistema di build tramite macro di distro (%cmake e %cmake_build).
-- %install: Installa gli artefatti in una root temporanea pulita (BUILDROOT) che replica il filesystem di destinazione.
-- %files: Manifest esplicito dei file presenti in BUILDROOT da includere nel payload RPM. Qualsiasi file non tracciato provoca un errore di build.
+La porzione superiore di uno spec file RPM, con righe come Name, Version, Release, License, Source0, si chiama Preambolo (o sezione Header). Precede gli scriptlet del corpo (%prep, %build, %install).
+- Ogni coppia chiave-valore (Name:, License:, Source0:) è un **tag** (detto anche header tag o spec tag). "Direttiva" è un termine più ampio che copre sia questi tag sia le sezioni di build %, quindi su questa slide "tag" è la parola precisa per le righe del Preambolo.
+- Name + Version + Release insieme si chiamano NVR; definiscono l'identità unica del nome file del pacchetto (NAME-VERSION-RELEASE.rpm).
+- Il Preambolo contiene metadati statici che gli strumenti RPM leggono durante query e build: identità, licenza, URL upstream, archivi sorgenti.
+- Insieme completo dei tag comuni: Name, Version, Release, Summary, License, URL, Source0, BuildRequires, Requires.
+
+--
+
+## .spec: Sezioni di Build
+
+* **`%prep`** &rarr; **`%build`** &rarr; **`%install`** &rarr; **`%files`**
+* Le direttive `%` sono il **ciclo di vita della build**
+
+Note:
+Le direttive % sono le Sezioni di Build (Body Sections / Fasi di Build), a differenza dei tag di metadato del Preambolo.
+- Definiscono il ciclo di vita della build: gli script shell e le macro passo-passo che rpmbuild esegue per trasformare il sorgente grezzo in un RPM finito.
+- %prep: prepara l'albero di build, solitamente scompattando i tarball con %autosetup.
+- %build: invoca il sistema di build tramite macro di distro (%cmake e %cmake_build).
+- %install: installa gli artefatti in una root temporanea pulita (BUILDROOT) che replica il filesystem di destinazione.
+- %files: manifest esplicito dei file presenti in BUILDROOT da includere nel payload RPM. Qualsiasi file non tracciato provoca un errore di build.
+- %changelog: storico delle imballature (data, maintainer, versione, modifiche).
+- Distinzione: Preambolo = metadati chiave-valore statici; Sezioni di Build = il ciclo di vita eseguibile della build.
 
 --
 
@@ -523,10 +536,9 @@ Gestione delle dipendenze a build-time:
 
 ## .spec: Dipendenze a Runtime
 
-* **`find-requires`**: Scansione automatica dei binari in `BUILDROOT`
-* **`DT_NEEDED`**: Collegamento dinamico &rarr; rilevato in automatico
-* **`dlopen()`**: Caricamento a runtime &rarr; invisibile allo scanner
-* **Contratto generato**: Traduce simboli e `DT_NEEDED` &rarr; `Requires:`
+* **`find-requires`** &rarr; `Requires:`
+* **`DT_NEEDED`** &rarr; visto
+* **`dlopen()`** &rarr; invisibile
 
 Note:
 Gestione delle dipendenze a runtime:
@@ -535,13 +547,13 @@ Gestione delle dipendenze a runtime:
 - La dualita' a runtime:
   1. Le librerie collegate normalmente sono registrate in DT_NEEDED: find-requires le legge in automatico ed emette i requisiti del pacchetto insieme alle versioni dei simboli glibc.
   2. Le librerie caricate a runtime tramite dlopen() e puntatori a funzione: invisibili a find-requires perche' non compaiono nella sezione dinamica ELF.
+- Il contratto generato: find-requires traduce i simboli e le voci DT_NEEDED nelle righe Requires: del RPM costruito.
 
 --
 
 ## CPack
 
 * Packaging integrato in CMake: nessun file `.spec` manuale
-* Configurazione minima in `CMakeLists.txt`:
 
 ```cmake
 set(CPACK_GENERATOR "TGZ;DEB;RPM")
@@ -562,9 +574,9 @@ Il flusso con CPack:
 
 ## La Trappola di --as-needed
 
-* <!-- .element: class="fragment" --> Hardening di distro: `%cmake` inietta `-Wl,--as-needed` di default
-* <!-- .element: class="fragment" --> Pruning del linker e punto cieco di `dlopen()`: Raylib invoca OpenGL via puntatori &rarr; `DT_NEEDED` rimosso, `find-requires` non lo vede
-* <!-- .element: class="fragment" --> Fallimento silenzioso: installa 1 pacchetto (904 KiB) invece di 36 (53 MiB) &rarr; crash a runtime
+* <!-- .element: class="fragment" --> `%cmake` &rarr; `-Wl,--as-needed`
+* <!-- .element: class="fragment" --> dispatch GL via `dlopen()` &rarr; rimosso da `DT_NEEDED`
+* <!-- .element: class="fragment" --> 1 pacchetto (904 KiB) non 36 (53 MiB) &rarr; crash a runtime
 
 ```rpm
 # In ocio.spec: bridging the dlopen() blind spot
@@ -580,7 +592,7 @@ La trappola per chi scrive lo spec:
 - Poiche' Raylib risolve i punti di ingresso OpenGL dinamicamente tramite puntatori e dlopen(), GNU ld con --as-needed considera il link non necessario e rimuove libOpenGL.so.0 e libGLX.so.0 da DT_NEEDED.
 - find-requires scansiona unicamente DT_NEEDED: non trova dipendenze grafiche ed emette solo libc e libm.
 - L'RPM compila senza errori, ma Zypper installa solo 1 pacchetto (904 KiB) invece di 36 (53 MiB). Il programma si avvia, ma va in crash all'apertura della finestra!
-- La soluzione: l'autore deve colmare manualmente il punto cieco di dlopen() dichiarando le capability virtuali in ocio.spec tramite Requires:.
+- La soluzione: l'autore deve colmare manualmente il punto cieco di dlopen() dichiarando le capability virtuali in ocio.spec tramite Requires: (il blocco di codice sopra).
 
 --
 
@@ -613,19 +625,19 @@ Confronto diretto con il crash iniziale:
 
 ## Come 1 è Diventato 36: libsolv
 
-* <!-- .element: class="fragment" --> Contratto locale: contratto di capability &rarr; `libOpenGL.so.0()(64bit)` (auto-estratta o dichiarata)
-* <!-- .element: class="fragment" --> Grafo del repository: 30.000+ pacchetti con capability virtuali, versioni e conflitti
-* <!-- .element: class="fragment" --> Motore di risoluzione: `zypper` / `dnf` delega a `libsolv`
-* <!-- .element: class="fragment" --> SAT Booleano: traduce i vincoli in clausole CNF &rarr; calcola la chiusura transitiva in ms
+* <!-- .element: class="fragment" --> Contratto: `libOpenGL.so.0()(64bit)` (auto-estratta o dichiarata)
+* <!-- .element: class="fragment" --> Motore: `zypper` / `dnf` &rarr; `libsolv`
+* <!-- .element: class="fragment" --> SAT: vincoli &rarr; CNF &rarr; chiusura in ms
 
 Note:
 Perche' l'installazione del nostro singolo RPM ha tirato dentro altri 35 pacchetti?
-- Che sia auto-estratta da find-requires (build CPack) o dichiarata dal maintainer nel .spec per superare --as-needed, il contratto richiede libOpenGL.so.0()(64bit).
+- Il contratto richiede libOpenGL.so.0()(64bit), che sia auto-estratta da find-requires (build CPack) o dichiarata dal maintainer nel .spec per superare --as-needed.
 - Le capability astratte (SONAME) disaccoppiano il binario dai nomi fisici dei pacchetti: qualsiasi pacchetto che fornisce libOpenGL.so.0()(64bit) (come libglvnd) soddisfa il contratto.
 - Il comando rpm a basso livello non puo' risolvere la rete: rpm -i fallirebbe con dipendenza mancante.
 - I frontend (Zypper / DNF) passano il catalogo del repository a libsolv, che interroga l'indice whatprovides.
 - libsolv traduce requisiti e conflitti in clausole booleane in forma normale congiuntiva (CNF) (es. A richiede B -> NOT A OR B).
 - In pochi millisecondi, il solver SAT (CDCL) calcola una chiusura consistente: sul nostro container minimale privo di stack grafico, soddisfare libglvnd porta a cascata Mesa, X11 e librerie DRM, totalizzando esattamente 36 pacchetti.
+- Nota di scena: fissare l'immagine Tumbleweed per digest prima del talk. Un pull fresco sposta la chiusura a 40 pacchetti (53.4 MiB / 229.8 MiB); i 36 (52.6 MiB) della slide corrispondono all'immagine fissata del 2026-06-22. Allineare la slide a cio' che zypper stampa in diretta.
 
 --
 
@@ -722,29 +734,6 @@ Anatomia di un file .deb:
 
 --
 
-## Dentro un DEB: Estrazione
-
-```text
-$ dpkg-deb -x ocio_0.1.0_amd64.deb ./deb-extracted/
-$ find ./deb-extracted -type f
-./deb-extracted/usr/bin/ocio
-./deb-extracted/usr/share/applications/ocio.desktop
-./deb-extracted/usr/share/icons/hicolor/256x256/apps/ocio.png
-./deb-extracted/usr/share/icons/hicolor/scalable/apps/ocio.svg
-./deb-extracted/usr/share/metainfo/org.packathon.ocio.metainfo.xml
-```
-<!-- .element: class="fragment" -->
-
-Note:
-L'estrazione e' lo speculare dell'rpm2cpio | cpio -idmv di RPM:
-- dpkg-deb -x scompatta il membro data.tar nella directory di destinazione, rimuovendo la / iniziale dai percorsi assoluti.
-- L'eseguibile estratto ./deb-extracted/usr/bin/ocio e' identico byte per byte al binario compilato.
-- Nessun controllo di dipendenze, nessun record nel database, nessuno script: estrarre significa solo copiare file, esattamente come con RPM.
-- Il membro control.tar (metadati, scriptlet, md5sums) non viene estratto con -x; usare dpkg-deb -e per estrarlo separatamente.
-- Scorciatoia: ar x ocio_0.1.0_amd64.deb data.tar.xz && tar -xJf data.tar.xz -C ./deb-extracted/ funziona senza i tool dpkg.
-
---
-
 ## Dentro un DEB: Payload
 
 ```text
@@ -821,6 +810,41 @@ Gestione delle dipendenze a runtime in Debian:
 
 --
 
+## DEB: Raylib Condivisa
+
+* **`RAYLIB_SHARED=ON`**: `ocio` collega `libraylib.so.550` (compilata da sorgente)
+* **La domanda**: dove vive la libreria? Un DEB ha bisogno di un *pacchetto* `libraylib550`, non di un `.so` incorporato
+* **Il lookup**: `dpkg-shlibdeps` mappa ogni SONAME a un pacchetto via `*.shlibs`
+
+```text
+$ readelf -d build-debian-shared/_deps/raylib-build/raylib/libraylib.so.550 | grep SONAME
+ 0x000000000000000e (SONAME) Library soname: [libraylib.so.550]
+```
+<!-- .element: class="fragment" -->
+
+```text
+$ cat /var/lib/dpkg/info/libc6:amd64.shlibs
+libc 6 libc6 (>= 2.36)
+libm 6 libc6 (>= 2.36)
+```
+<!-- .element: class="fragment" -->
+
+* **Nessuna riga `libraylib`** &rarr; `Depends:` non calcolabile &rarr; la build abortisce
+* **Fix**: fornire un pacchetto `libraylib550` + `Depends:` (nessuna distro attuale lo fornisce)
+* **Demo**: [PR #27](https://github.com/michelepagot/packathon/pull/27) (rossa di proposito)
+
+Note:
+Dove vive la libreria condivisa?
+- RAYLIB_SHARED=ON fa collegare a ocio la libraylib.so.550, compilata da sorgente via FetchContent. Un DEB non può incorporare un .so arbitrario e dichiarare una dipendenza su di esso: dpkg-shlibdeps deve mappare il SONAME a (pacchetto, versione) usando i file *.shlibs dei pacchetti installati.
+- La tabella shlibs è il database di lookup. libc6:amd64.shlibs mappa libc 6 -> libc6 (>= 2.36), libm 6 -> libc6 (>= 2.36). La colonna di sinistra è la forma libtool (nome + versione ABI), non la stringa SONAME grezza; dpkg-shlibdeps converte libm.so.6 -> libm 6 prima del lookup.
+- libraylib.so.550 -> libraylib 550 non ha alcuna voce in nessun file shlibs installato, perché raylib è stata compilata da sorgente e mai installata come pacchetto Debian. Nessuna mappatura, nessuna riga Depends:, la build abortisce.
+- Fatti verificati sulle distro: Debian non fornisce raylib in alcun modo (apt-cache showpkg libraylib -> Unable to locate package). openSUSE fornisce raylib 6.0, SONAME libraylib.so.600, non la 5.5 che ocio richiede (rpm -q --whatprovides 'libraylib.so.550()(64bit)' -> nessun pacchetto). Quindi nessuna distro fornisce il SONAME corrispondente; un pacchetto libraylib550 dovrebbe essere contribuito.
+- Tre opzioni (analisi del relatore): (1) fornire libraylib550 come pacchetto fratello con una riga Depends: - la fix corretta, fuori scope per la conferenza; (2) SHLIBDEPS_PRIVATE_DIRS - una trappola, converte un fallimento di build rumoroso in un fallimento a runtime silenzioso; (3) saltare il generatore DEB (passare TGZ) - ciò che fa il progetto, onesto ma incompleto.
+- Parallelo AppImage: lo stesso flag RAYLIB_SHARED=ON, risposta diversa. Un AppImage incorpora il .so nella scatola (sopra l'excludelist); la ricetta appimagetool fatta a mano è l'errore perché non scansiona mai DT_NEEDED, quindi una libreria mancante è silenziosa in build e rumorosa a runtime. linuxdeploy è lo strumento di scansione su quel lato. Il dpkg-shlibdeps del DEB è lo strumento di scansione su questo lato; ha solo bisogno che la libreria sia un pacchetto noto.
+- Contrasto RPM: find-requires non ha bisogno di un database di pacchetti. Legge DT_NEEDED ed emette il SONAME come capability (libraylib.so.550()(64bit)) direttamente. Il lato DEB ha bisogno del salto extra SONAME-a-pacchetto, e quel salto è il punto in cui una libreria compilata da sorgente si rompe.
+
+--
+
 ## Dopo l'Installazione: Registrato e Protetto
 
 ```text
@@ -855,15 +879,12 @@ Installare significa copiare file e mantenere un database autorevole:
 
 ## Cucinare un DEB
 
-* **Tool**: `dpkg-buildpackage` (da `dpkg-dev`) / `debuild`
-* **Ricetta**: La directory `debian/` dentro i sorgenti
-* **Albero**: Radice dei sorgenti contenente `debian/`
-* **Flusso**: `dpkg-buildpackage -us -uc -b`
-  * Esegue la build tramite `debian/rules` e Debhelper (`dh`)
-  * Genera il pacchetto binario (`.deb`) e il file `.changes`
+* **Tool**: `dpkg-buildpackage`
+* **Ricetta**: directory `debian/`
+* **Flusso**: `dpkg-buildpackage`
 
 <p class="fragment text-info" style="margin-top: 25px;">
-<strong>Due dialetti, stesso formato:</strong> la ricetta a basso livello (skeleton + <code>dpkg-shlibdeps</code> + <code>dpkg-deb</code>) e la ricetta canonica debhelper producono lo stesso archivio <code>ar</code>.
+<strong>Due dialetti, stesso formato:</strong> skeleton + <code>dpkg-deb</code> vs. debhelper
 </p>
 
 Note:
@@ -880,11 +901,11 @@ Come si costruisce un DEB nativo:
 
 ## Dentro debian/
 
-* **`control`**: Metadati, `Build-Depends` e `Depends: ${shlibs:Depends}`
-* **`rules`**: Makefile eseguibile per il ciclo di vita (`dh $@`)
-* **`changelog`**: Versione canonica del pacchetto, release e suite di destinazione
-* **`copyright`**: Manifest di licenza machine-readable (standard DEP-5)
-* **Debhelper (`dh`)**: Sequencer per configurazione, build, staging e strip
+* **`control`**: metadati e dipendenze
+* **`rules`**: ciclo di build (`dh $@`)
+* **`changelog`**: versione e release
+* **`copyright`**: licenze DEP-5
+* **`dh`**: sequencer di build
 
 Note:
 La struttura della ricetta Debian:
@@ -898,21 +919,21 @@ La struttura della ricetta Debian:
 
 ## Dialetti
 
-| Dimensione | Ecosistema RPM | Ecosistema DEB |
+| Dimensione | RPM | DEB |
 |---|---|---|
-| **Contenitore** | CPIO (`zstd`) | Archivio `ar` standard |
-| **Tool base** | `rpm` | `dpkg` |
-| **Package manager** | `zypper` / `dnf` | `apt` |
-| **Risolutore deps** | `find-requires` | `dpkg-shlibdeps` |
-| **Ispezione file** | `rpm -qlp` | `dpkg-deb -c` |
-| **Ispezione metadati** | `rpm -qp --requires` | `dpkg-deb -I` |
-| **Verifica integrità** | `rpm -V` | `debsums` |
+| **Contenitore** | CPIO | `ar` |
+| **Tool** | `rpm` | `dpkg` |
+| **Manager** | `zypper` | `apt` |
+| **Gen deps** | `find-requires` | `dpkg-shlibdeps` |
+| **Res deps** | capability SONAME | lookup `*.shlibs` |
+| **Ispezione** | `rpm -qlp` | `dpkg-deb -c` |
+| **Audit** | `rpm -V` | `debsums` |
 <!-- .element: style="font-size: 0.76em;" -->
 
 Note:
 Due dialetti, stesso principio ingegneristico:
 - Contenitori: RPM usa un payload CPIO compresso (zstd o gzip); DEB usa un classico archivio Unix ar contenente control.tar (metadati) e data.tar (payload).
-- Generazione dipendenze: find-requires scansiona le voci ELF DT_NEEDED; dpkg-shlibdeps mappa i simboli tramite i file symbols delle librerie.
+- Generazione dipendenze: find-requires scansiona le voci ELF DT_NEEDED ed emette ciascun SONAME direttamente come capability (es. `libraylib.so.550()(64bit)`) senza consultare un database di pacchetti; dpkg-shlibdeps deve mappare ciascun SONAME a (pacchetto, versione) tramite i file `*.shlibs` dei pacchetti installati, quindi ha bisogno di un database di pacchetti. Una libreria compilata da sorgente senza voce shlibs fa fallire il lato DEB ma non il lato RPM.
 - Ispezione: rpm -qlp FILE.rpm vs dpkg-deb -c FILE.deb per i file; rpm -qp --requires vs dpkg-deb -I per i metadati.
 - Integrita': rpm -V PACKAGE controlla i digest salvati nel database RPM; debsums PACKAGE verifica i file rispetto ai digest md5sums.
 - Risoluzione: Entrambi delegano a un risolutore ad alto livello (zypper/dnf con libsolv, apt con il suo motore di scoring).
@@ -1037,7 +1058,6 @@ Dissezione dell'header binario di AppImage:
 
 * **Stub runtime ELF**: launcher static-pie all'offset 0 del file (944 KiB)
 * **Payload SquashFS**: filesystem compresso accodato all'offset 944632 (461 KiB)
-* **Anatomia in due parti**: runtime stub + albero applicativo compresso
 
 ```text
 $ ocio-x86_64.AppImage --appimage-offset
@@ -1252,8 +1272,9 @@ Note:
 Ora un vero errore di packaging, sopra la linea della excludelist:
 - Compiliamo raylib come libreria condivisa. ocio ora richiede libraylib, che non e' nella excludelist: deve stare nella scatola.
 - Male: la ricetta a mano non ce la mette (CMake installa libraylib.so con il componente raylib-devel, non con ocio). Il binario nella build tree parte, perche' la build RPATH di CMake punta alla directory di build: "sul mio computer va", ancora una volta. L'AppImage fallisce sul desktop.
-- Bene: linuxdeploy copia libraylib in usr/lib e imposta RUNPATH=$ORIGIN/../lib, cosi' ld.so la trova dentro il mount. libOpenGL e libGLX restano fuori, come devono.
+- Bene: linuxdeploy copia libraylib in usr/lib e imposta RUNPATH=$ORIGIN/../lib, cosi' ld.so la trova dentro il mount. libOpenGL e libGLX restano fuori, come devono. Lo script punta LD_LIBRARY_PATH alla libraylib della build tree affinche' la scansione la trovi: il binario installato non ha RUNPATH, quindi la scansione non vedrebbe nulla.
 - Non e' una soluzione: installare raylib con il package manager della distro. Riporta l'AppImage a un binario che dipende dalla distro. Su Tumbleweed non funzionerebbe nemmeno: la distro fornisce raylib 6.0, ocio e' compilato contro la 5.5.
+- Parallelo alla slide DEB: dpkg-shlibdeps e' lo strumento di scansione su quel lato, e ha bisogno che la libreria sia un pacchetto noto. linuxdeploy e' lo strumento di scansione su questo lato, e ha bisogno che la libreria sia reperibile sulla build host. Stessa abitudine: lascia che lo strumento verifichi il contratto.
 Morale: la soluzione per una scatola rotta sta dentro la scatola, non sull'host.
 DA VERIFICARE prima del talk: soname esatto, testo dell'errore e RUNPATH vs RPATH nell'output di linuxdeploy.
 
@@ -1429,10 +1450,10 @@ La tesi centrale dell'Atto 3:
 
 La capacità di aggiornamento dipende dal **canale**, non dal formato:
 
-* **`.deb` / `.rpm` via repository**: Aggiornamenti automatici dell'OS (`apt upgrade`, `zypper dup`). <!-- .element: class="fragment" -->
-* **File installato a mano (`dpkg -i` / `rpm -i`)**: Artefatto orfano; nessuna patch futura. <!-- .element: class="fragment" -->
-* **Flatpak via repository OSTree** (Flathub o self-hosted su GitHub Pages): delta statici a blocchi, aggiornamenti atomici. <!-- .element: class="fragment" -->
-* **AppImage**: Statico per impostazione predefinita; richiede `.upd_info` nella sezione ELF per abilitare `zsync`. <!-- .element: class="fragment" -->
+* <!-- .element: class="fragment" --> `.deb` / `.rpm` via repository: Aggiornamenti automatici dell'OS (`apt upgrade`, `zypper dup`).
+* <!-- .element: class="fragment" --> File installato a mano (`dpkg -i` / `rpm -i`): Artefatto orfano; nessuna patch futura.
+* <!-- .element: class="fragment" --> Flatpak via repository OSTree (Flathub o self-hosted su GitHub Pages): delta statici a blocchi, aggiornamenti atomici.
+* <!-- .element: class="fragment" --> AppImage: Statico per impostazione predefinita; richiede una nota ELF `.upd_info` che punti a un file di controllo `zsync`.
 
 <p class="fragment text-danger" style="margin-top: 25px;">
 <em>Un eseguibile privo di canale di aggiornamento è un debito di sicurezza perpetuo.</em>
@@ -1444,24 +1465,24 @@ Il paradosso del ciclo di vita del software:
 - Quando un utente scarica un .deb o un .rpm dalle release di GitHub e lancia dpkg -i o rpm -i, quel pacchetto e' orfano: nessun repository lo conosce e non ricevera' mai patch automatiche dal sistema.
 - Flatpak risolve il problema con OSTree: gli aggiornamenti sono indicizzati per contenuto e scaricati come delta binari atomici (vengono trasferiti solo i blocchi modificati).
 - Il canale non deve essere Flathub: un repository OSTree e' un semplice albero di file statico (commit + summary in formato archive-z2). Per questo lo stesso meccanismo funziona su GitHub Pages: ogni push a main genera un nuovo commit firmato, e l'utente riceve l'aggiornamento con un normale flatpak update.
-- AppImage e' completamente isolato di base. L'aggiornamento richiede l'inserimento di una sezione .upd_info nell'eseguibile ELF che punti a un file di controllo zsync su un server remoto.
+- AppImage e' completamente isolato di base. L'aggiornamento richiede l'inserimento di una nota ELF .upd_info nell'eseguibile che punti a un file di controllo zsync su un server remoto.
 - Regola fondamentale di sicurezza: distribuire un binario senza un canale di aggiornamento significa lasciare le vulnerabilita' permanentemente sulle macchine degli utenti.
 
 --
 
 ## Firme: Integrità e Provenienza
 
-Perché `--allow-unsigned-rpm` è inaccettabile: nessuna prova di origine e gli scriptlet vengono eseguiti come **root**.
+* `--allow-unsigned-rpm`: nessuna prova di origine, scriptlet eseguiti come **root**
 
 | Ecosistema | Livello di Firma | Validazione a Runtime |
 |---|---|---|
-| **APT** | Metadati repo (`Release.gpg`) | Verifica obbligatoria pre-unpack |
-| **RPM** | Header pacchetto + `repomd.xml` | Verifica GPG su keyring di sistema |
-| **Flatpak** | Commit &amp; Summary in OSTree | Verifica crittografica ad ogni pull |
-| **AppImage** | Blocco ELF integrato (`--appimage-signature`) | **Nessuna validazione automatica** all'avvio |
+| **APT** | Metadati repo | Verifica obbligatoria pre-unpack |
+| **RPM** | Header pacchetto | Verifica GPG su keyring |
+| **Flatpak** | Commit OSTree | Verifica crittografica ad ogni pull |
+| **AppImage** | Blocco ELF integrato | **Nessuna verifica automatica** |
 
 <p class="fragment" style="margin-top: 25px;">
-<strong>Realtà 2026</strong>: <em>Sigstore / Keyless</em> (OIDC) per le release upstream in CI; i keyring GPG tradizionali restano obbligatori per i package manager di sistema.
+<strong>2026</strong>: <em>Sigstore / Keyless</em> per la CI; i keyring GPG restano obbligatori in distro.
 </p>
 
 Note:
@@ -1484,10 +1505,6 @@ Le implicazioni di sicurezza delle firme digitali:
   * `raylib` incorporata a build time via Git (`FetchContent`, archivio statico).
   * Stack di sistema (X11, OpenGL, glibc) risolto dinamicamente a runtime dalla distro.
 
-<div class="fragment callout" style="margin-top: 25px;">
-<strong>Il Paradosso dell'SBOM in C</strong>: Le dipendenze sono divise tra tempo di compilazione e tempo di installazione. Un SBOM completo non si deduce dal codice sorgente: richiede l'osservazione della build dentro un build service isolato.
-</div>
-
 Note:
 La realta' dell'SBOM nel software di sistema:
 - Gli sviluppatori abituati a Rust, Go o al Python moderno danno per scontati i lockfile che bloccano ogni dipendenza transitiva a un digest crittografico.
@@ -1495,6 +1512,7 @@ La realta' dell'SBOM nel software di sistema:
 - In ocio il grafo delle dipendenze e' spezzato in due meta':
   1. Tempo di compilazione: raylib viene scaricata via Git (FetchContent) e collegata staticamente nel binario.
   2. Tempo di esecuzione: X11, OpenGL e libc sono totalmente assenti dal repository sorgente; vengono risolti dinamicamente dall'host al momento del lancio.
+- Il Paradosso dell'SBOM in C: le dipendenze sono divise tra tempo di compilazione e tempo di installazione. Un SBOM completo non si deduce dal codice sorgente: richiede l'osservazione della build dentro un build service isolato.
 - E' impossibile generare una Software Bill of Materials accurata scansionando solo git. E' necessario catturare l'ambiente di build ermetico (SPDX / CycloneDX generati dentro OBS o Koji).
 
 ---
