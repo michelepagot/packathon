@@ -92,7 +92,9 @@ else
     # tree is invisible to linuxdeploy's dependency scan: point it there.
     RAYLIB_SO="$(find "${BUILD_DIR}" -path "${APPDIR}" -prune -o -name 'libraylib.so*' -print -quit)"
     if [ -n "${RAYLIB_SO}" ]; then
-        export LD_LIBRARY_PATH="$(dirname "${RAYLIB_SO}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        RAYLIB_DIR="$(dirname "${RAYLIB_SO}")"
+        LD_LIBRARY_PATH="${RAYLIB_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        export LD_LIBRARY_PATH
     fi
 
     linuxdeploy --appdir "${APPDIR}" \
