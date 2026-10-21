@@ -234,7 +234,49 @@ $ bsdtar -xf ocio-0.1.0-1.x86_64.rpm
 $ ar -t ocio_0.1.0_amd64.deb
 $ ar -x ocio_0.1.0_amd64.deb</code></pre>
 
-      <h2>4. Repository &amp; Package Manager Operations</h2>
+      <h2>4. DEB Dependency Generation (dpkg-shlibdeps)</h2>
+      <p>
+        <code>dpkg-shlibdeps</code> is the tool that computes the <code>Depends:</code> field of a
+        Debian package. It scans the ELF binaries in the staging directory, reads each
+        <code>DT_NEEDED</code> entry, and maps every SONAME to a (package, version) pair using the
+        <code>*.shlibs</code> files of installed packages.
+      </p>
+
+      <pre><code># What the binary asks for (the input to dpkg-shlibdeps)
+$ readelf -d /path/to/binary | grep NEEDED
+
+# The lookup database: one line per SONAME, shipped by every library package
+$ cat /var/lib/dpkg/info/libc6:amd64.shlibs
+ld-linux-x86-64 2 libc6 (>= 2.36)
+libc 6 libc6 (>= 2.36)
+libm 6 libc6 (>= 2.36)
+...
+
+# The scan: prints the substitution variable for debian/control
+$ dpkg-shlibdeps -O debian/ocio/usr/bin/ocio
+shlibs:Depends=libc6 (>= 2.35)
+
+# What goes in debian/control (a variable, never a hand-written version)
+Depends: ${shlibs:Depends}, libgl1, libx11-6</code></pre>
+
+      <div class="note-box">
+        <strong>Requirements &amp; gotchas:</strong>
+        <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+          <li>A <code>debian/control</code> file must exist in the working tree, even when using <code>-O</code> on a bare binary.</li>
+          <li>The version floor comes from the <code>.symbols</code> file when present (finer-grained than <code>.shlibs</code>).</li>
+          <li>A SONAME with no <code>.shlibs</code> entry (e.g. a library built from source) aborts the build: <code>error: no dependency information found for ...</code>. Neither <code>-e</code> nor <code>-x</code> skips the lookup.</li>
+          <li><code>-l</code> takes a list of <em>additional binaries</em> to scan, not a private shlibs directory. The <code>SHLIBDEPS_PRIVATE_DIRS</code> env var is a debhelper (<code>dh_shlibdeps</code>) feature, not a <code>dpkg-shlibdeps</code> flag.</li>
+          <li>Libraries loaded via <code>dlopen()</code> are invisible (same blind spot as RPM's <code>find-requires</code>).</li>
+        </ul>
+      </div>
+
+      <p>
+        A narrated, step-by-step demo of this mechanism (including the source-built library
+        failure mode) is provided by:
+      </p>
+      <pre><code>$ packaging/packator.sh debian builder packaging/demo/demo-deb.sh --bin /path/to/ocio --deb /path/to/ocio.deb</code></pre>
+
+      <h2>5. Repository &amp; Package Manager Operations</h2>
       <p>Commands for dependency resolution and package operations across openSUSE, Fedora, and Debian:</p>
 
       <pre><code># openSUSE (Zypper / libsolv)
@@ -261,7 +303,7 @@ $ sudo dnf install /path/to/ocio-0.1.0-1.x86_64.rpm
 # Install local DEB package resolving remote dependencies
 $ sudo apt-get install /path/to/ocio_0.1.0_amd64.deb</code></pre>
 
-      <h2>5. Container &amp; Sandbox Testing</h2>
+      <h2>6. Container &amp; Sandbox Testing</h2>
       <p>Commands used to test binaries, packages, and sandboxes in clean environments:</p>
 
       <pre><code># Test raw binary in a pristine, vanilla openSUSE Tumbleweed container (fails due to missing libs)

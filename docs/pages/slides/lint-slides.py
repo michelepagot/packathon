@@ -888,6 +888,31 @@ class SlideDeckLinter:
             )
 
     # =========================================================================
+    # Rule 6: Speaker notes separator must be anchored at column 0
+    # =========================================================================
+    def check_note_separator(self, slide: SlideData, deck_name: str) -> None:
+        """Rule 6: An indented 'Note:' line is not recognized by reveal.js
+        (data-separator-notes='^Note:' is anchored to column 0) and the notes
+        block renders as visible slide content."""
+        for line_no, line in slide.body_lines:
+            if re.match(r"^\s+Note:", line):
+                self.issues.append(
+                    Issue(
+                        slide_index=slide.index,
+                        category="notes",
+                        severity="ERROR",
+                        line_number=line_no,
+                        message=(
+                            f"Indented 'Note:' separator in {deck_name} deck (line {line_no}): "
+                            f"'{line.strip()}'. reveal.js's data-separator-notes='^Note:' is anchored "
+                            f"to column 0, so this line is not recognized as a speaker note separator "
+                            f"and the notes block renders as visible slide content. "
+                            f"Place 'Note:' at column 0."
+                        ),
+                    )
+                )
+
+    # =========================================================================
     # Rule 5: Used images must match identically between decks
     # =========================================================================
     def check_images(self, s_en: SlideData, s_it: SlideData) -> None:
@@ -958,6 +983,8 @@ class SlideDeckLinter:
                 self.check_tables(s_en, s_it)
             if "notes" in categories:
                 self.check_speaker_notes(s_en, s_it)
+                self.check_note_separator(s_en, "primary")
+                self.check_note_separator(s_it, "secondary")
             if "images" in categories:
                 self.check_images(s_en, s_it)
 

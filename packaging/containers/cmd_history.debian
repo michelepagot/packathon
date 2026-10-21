@@ -55,10 +55,27 @@ ar -t dist/ocio_0.1.0_amd64.deb
 dpkg-deb -I dist/ocio_0.1.0_amd64.deb
 dpkg-deb -I dist/ocio_0.1.0_amd64.deb | grep -E "Package:|Version:|Depends:|Recommends:"
 dpkg-deb -c dist/ocio_0.1.0_amd64.deb
-dpkg-shlibdeps -O dist/ocio
 dpkg -i dist/ocio_0.1.0_amd64.deb
 apt-get update && apt-get install -y ./dist/ocio_0.1.0_amd64.deb
 dpkg --verify ocio
+
+# === dpkg-shlibdeps Mechanism (4 steps) ===
+# Step 1: what the binary asks for
+readelf -d build-debian-static/bin/ocio | grep NEEDED
+# Step 2: the lookup database
+ls /var/lib/dpkg/info/*.shlibs | head -10
+cat /var/lib/dpkg/info/libc6:amd64.shlibs
+# Step 3: the scan (requires debian/control in the working tree)
+mkdir -p /tmp/shlibtest/debian/ocio/usr/bin
+cp packaging/deb/skeleton/DEBIAN/control /tmp/shlibtest/debian/control
+cp build-debian-static/bin/ocio /tmp/shlibtest/debian/ocio/usr/bin/ocio
+cd /tmp/shlibtest
+dpkg-shlibdeps -O debian/ocio/usr/bin/ocio
+# Step 4: failure mode - source-built library with no shlibs entry
+cp build-debian-shared/bin/ocio debian/ocio/usr/bin/ocio-shared
+dpkg-shlibdeps -O debian/ocio/usr/bin/ocio-shared
+# Narrated demo of the full mechanism:
+packaging/demo/demo-deb.sh --deb dist/ocio_0.1.0_amd64.deb --bin build-debian-static/bin/ocio --bin-shared build-debian-shared/bin/ocio
 
 # === Route 2: AppImage Mechanics ===
 # Shared-raylib A/B test: linuxdeploy (scans DT_NEEDED, bundles libraylib.so)
