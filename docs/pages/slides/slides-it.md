@@ -58,25 +58,10 @@ Note:
 
 ## Agenda
 
-<div class="grid-2">
-<div>
-
-1. **Censimento**
-2. **Prospettive**
-3. **Dipendenze**
-4. **Formati**
-5. **Delega**: RPM &amp; DEB *(Demo)*
-
-</div>
-<div>
-
-6. **AppImage**, **Flatpak**, **Permessi**
-7. **Rilascio** &amp; **Aggiornamenti**
-8. **Firme** &amp; **SBOM**
-9. **Sintesi**, **Metriche**, **Q&amp;A**
-
-</div>
-</div>
+1. **Intro**: Censimento, Prospettive, primer "Dipendenze"
+2. **Formati**: RPM, DEB, AppImage, Flatpak
+3. **Rilascio e Distribuzione**
+4. **Conclusioni**
 
 Note:
 Panoramica sintetica della progressione del talk.
@@ -162,8 +147,6 @@ Guardiamo cosa succede realmente sotto il cofano all'avvio."
 
 ## Avvio
 
-`$ ocio`
-
 1. **Shell**: ricerca in `$PATH` &rarr; `/usr/bin/ocio` <small>(`command -v ocio`)</small>
 2. **Kernel**: `execve()` &rarr; `PT_INTERP` &rarr; `ld.so`
 3. **ld.so**: `DT_NEEDED` &rarr; `/lib64/libOpenGL.so.0` trovato
@@ -219,7 +202,6 @@ Ponte verso la slide successiva:
 - "Ispezioniamo il binario: cosa cercava il linker?"
 - **Foreshadowing (AppImage):** Il kernel valida l'header ELF (`\x7fELF`). Nel Capitolo 5 vedremo come AppImage sfrutta il padding libero in questo header.
 
-
 --
 
 ## Seguendo libOpenGL.so.0
@@ -244,23 +226,24 @@ $ ldd ./ocio
 <!-- .element: class="fragment" -->
 
 Note:
-Requisiti dichiarati vs. Realta' dell'host:
-"Come diagnostichiamo cosa e' andato storto?
-`readelf -d` ispeziona il file binario stesso per vedere quali dipendenze sono state registrate durante la compilazione.
-`ldd` chiede al dynamic linker di simulare la risoluzione di tali dipendenze sul sistema host corrente.
-Sulla macchina di sviluppo le librerie erano presenti nella cache locale. Sulla macchina di test mancano, quindi ldd segnala 'not found'."
+Metodo per tracciare le dipendenze di un eseguibile:
+- `readelf -d` → legge la sezione `.dynamic`: cosa il binario *chiede* (`DT_NEEDED`), elenco fisso scritto dal linker a compile-time.
+- `ldd` → esegue `ld.so` con `LD_TRACE_LOADED_OBJECTS=1`: cosa l'host *trova*, risolvendo su percorsi di sistema + `/etc/ld.so.cache`.
 
-Sotto il cofano:
-1. `readelf -d` legge direttamente la sezione `.dynamic`: `DT_NEEDED` elenca le dipendenze dinamiche registrate dal linker. Notate che Raylib non compare perché nella build predefinita è incorporata staticamente in `.text`. Ma il backend GLFW di Raylib richiede `libOpenGL.so.0` e `libGLX.so.0` (architettura libglvnd, non la vecchia libGL).
-2. `ldd` è uno script che esegue `ld.so` con `LD_TRACE_LOADED_OBJECTS=1`. Cerca nei percorsi di sistema dell'host e in `/etc/ld.so.cache`.
-   Risultato: `libOpenGL.so.0` e `libGLX.so.0` risultano "not found".
+La prova:
+- Sviluppo: librerie installate (desktop completo) → tutto risolto.
+- Test: `libOpenGL.so.0` / `libGLX.so.0` → "not found" (non installate).
+
+Dettaglio (solo se chiesto):
+- Raylib non compare in `DT_NEEDED`: statica in `.text` nella build predefinita.
+- Il backend GLFW di Raylib richiede `libOpenGL.so.0` + `libGLX.so.0` (libglvnd, non la vecchia libGL).
 
 Comandi da mostrare:
-`readelf -d ./ocio | grep NEEDED` (l'elenco delle dipendenze a tempo di compilazione)
-`ldd ./ocio` (la verifica della risoluzione sull'host)
+`readelf -d ./ocio | grep NEEDED`
+`ldd ./ocio`
 
-Ponte verso la slide successiva:
-"Ma come e' possibile? Sul computer di sviluppo compilava senza warning ed eseguiva perfettamente. Come fa un compilatore a produrre un binario che muore prima ancora di entrare in main()?"
+Ponte:
+"Compilava senza warning e girava perfettamente. Come fa un compilatore a produrre un binario che muore prima di entrare in main()?"
 
 --
 
@@ -270,17 +253,21 @@ Ponte verso la slide successiva:
 <div>
 
 ### Build-Time
-* Consumate **una volta**
-* Header &amp; librerie statiche
-* Compilatore &amp; tool
+Consumate **una volta**
+<ul class="text-muted" style="font-size: 0.85em;">
+<li>Header &amp; librerie statiche</li>
+<li>Compilatore &amp; tool</li>
+</ul>
 
 </div>
 <div>
 
 ### Runtime
-* Richieste **a ogni avvio**
-* `.so` dinamiche &amp; `glibc`
-* Display &amp; nodi GPU
+Richieste **a ogni avvio**
+<ul class="text-muted" style="font-size: 0.85em;">
+<li>`.so` dinamiche &amp; `glibc`</li>
+<li>Display &amp; nodi GPU</li>
+</ul>
 
 </div>
 </div>
@@ -290,24 +277,23 @@ Ponte verso la slide successiva:
 </p>
 
 Note:
-Il contratto a tempo di compilazione vs esecuzione:
-"Perché il binario ha compilato senza errori se poi non può essere eseguito?
-A tempo di compilazione (build-time), al compilatore servono solo i file header (.h) per validare le firme delle funzioni e gli stub dei simboli per calcolare gli offset di rilocazione. Non verifica affatto che librerie condivise funzionanti saranno presenti sull'host di destinazione.
-A tempo di esecuzione (runtime), il binario richiede le librerie condivise concrete (.so), un display server attivo (X11 o Wayland) e i moduli driver GPU hardware."
+"Perché ha compilato senza errori se poi non può essere eseguito?"
 
-Perché non compiliamo tutto staticamente al 100% (`gcc -static`) come fanno Go o Rust?
-- Abbiamo fatto esattamente questo esperimento (Variante 7): il linker GNU ld fallisce subito con: `attempted static link of dynamic object '/usr/lib64/libOpenGL.so'`.
-- Nelle distribuzioni Linux `libglvnd` non fornisce archivi statici `.a`.
-- Ancora più a monte: i driver GPU desktop su Linux sono caricatori dinamici. I driver DRI (Mesa: `iris_dri.so`, `radeonsi_dri.so`, `nvidia.so`) devono essere rilevati e caricati dinamicamente via `dlopen()` a runtime in base alla specifica scheda video installata nel computer.
-- Inoltre, una glibc statica rompe i plugin dinamici NSS (`/etc/nsswitch.conf`).
-- Morale: un'applicazione grafica desktop su Linux non può essere al 100% statica. In C, un binario dinamico è un contratto incompleto che deve essere onorato dall'OS host.
+Il contratto (una riga per colonna della slide):
+- **Build-time** = una volta sola: servono solo header `.h` (firme) e stub (offset di rilocazione). Non verifica che le `.so` esistano sull'host.
+- **Runtime** = a ogni avvio: servono le `.so` concrete, un display server attivo (X11/Wayland) e i driver GPU.
+
+Perché non `gcc -static` come Go/Rust? (solo se c'è tempo)
+- Esperimento reale (Variante 7): `ld` rifiuta subito — `attempted static link of dynamic object '/usr/lib64/libOpenGL.so'`.
+- `libglvnd` non fornisce archivi `.a`.
+- Driver GPU DRI (`iris_dri.so`, `nvidia.so`) caricati a runtime via `dlopen()`: impossibile statici.
+- glibc statica rompe i plugin NSS (`/etc/nsswitch.conf`).
 
 Comando da mostrare:
-`gmake -C build-07-attempt-static 2>&1 | grep "attempted static link"` (dimostra che ld rifiuta OpenGL statico)
+`gmake -C build-07-attempt-static 2>&1 | grep "attempted static link"`
 
-Ponte verso la sezione Formati:
-"Il binario richiede queste librerie, ma il sistema dell'utente non le possiede. Come facciamo a distribuirle o a garantire che siano presenti?
-E' qui che entra in gioco il packaging: ciascun formato su Linux adotta una strategia radicalmente diversa per colmare questo divario."
+Ponte verso Formati:
+"Il binario richiede queste librerie, ma l'host non le possiede. Ogni formato le colma in modo diverso: entriamo nel packaging."
 
 ---
 
@@ -345,14 +331,36 @@ Transizione verso la Rotta 1: approfondiremo i 4 grandi formati desktop (RPM, DE
 
 Note:
 Introduciamo RPM:
-- Origine: Creato nel 1997 da Marc Ewing ed Erik Troan (Red Hat).
+- Origine: Nasce nel 1995 da Marc Ewing ed Erik Troan (Red Hat); la slide riporta il 1997, anno della prima release stabile (RPM 3.0) che ne fissa il formato.
+- Nome: "RPM" sta per "Red Hat Package Manager"; oggi e' diventato un acronimo ricorsivo, "RPM Package Manager".
+- Antenati (solo se c'e' tempo): RPM nasce dall'esperienza con pms (1993, Bogus Linux) e rpp, e convive brevemente con pm (1995, Rik Faith e Doug Hoffman). Non e' una rinomina PM -> PPM -> RPM: pm e' un progetto separato, e PPM e' un altro tool (Puppy Linux).
+- Implementazione: scritto in Perl all'inizio; la riscrittura in C avviene gia' nel 1995 (RPM 1.4, novembre; RPM 2.0, marzo 1996, e' la prima versione interamente in C).
 - Natura: Un archivio con metadati che trasporta file e dichiara dipendenze formali.
-- Diffusione: Lo standard di riferimento per openSUSE, SLE, Fedora e RHEL (specifica LSB).
-- CLI quotidiana:
-  * Ispezione: rpm -qlp (file) e rpm -qp --requires (dipendenze)
-  * Installazione con gestore pacchetti: zypper in oppure dnf in
-  * Verifica integrita': rpm -V (rileva file alterati rispetto ai digest del db)
-Ora andiamo a vedere cosa c'e' fisicamente dentro il file .rpm sul disco.
+ - Diffusione: Lo standard di riferimento per openSUSE, SLE, Fedora e RHEL (specifica LSB).
+
+--
+
+## RPM: Chi lo usa
+<!-- .slide: data-logos="image/redhat.png image/fedora.png image/centos-stream.png image/rocky-linux.png image/almalinux.png image/oracle-linux.png image/suse-linux-enterprise.png image/opensuse.png image/mageia.png image/openmandriva.png image/pclinuxos.png image/rosa-linux.png image/tizen.png image/sailfish-os.png image/qubes-os.png image/asahi-linux.png image/cbl-mariner.png image/asianux.png image/red-star-os.png" -->
+
+  <p class="text-muted" style="margin-bottom: 10px;">Distribuzioni che usano RPM sotto il cofano</p>
+
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Red Hat</strong>: RHEL, Fedora, CentOS Stream, Rocky, AlmaLinux, Oracle
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>SUSE</strong>: SLE, openSUSE (Tumbleweed/Leap)
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Mandriva/Mageia</strong>: Mageia, OpenMandriva, PCLinuxOS, ROSA
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Mobile/embedded</strong>: Tizen, Sailfish OS
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Sicurezza/altre</strong>: Qubes OS, Asahi Linux, CBL-Mariner, Asianux, Red Star OS
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Non-Linux</strong>: AIX, IBM i, NetWare, ArcaOS
+
+Note:
+ - Famiglia Red Hat: RHEL, Fedora, CentOS Stream, Rocky Linux, AlmaLinux, Oracle Linux.
+ - Famiglia SUSE: SUSE Linux Enterprise (SLE) e openSUSE (Tumbleweed/Leap).
+ - Famiglia Mandriva/Mageia: Mageia, OpenMandriva, PCLinuxOS, ROSA Linux.
+ - Mobile/embedded: Tizen (Samsung), Sailfish OS (Jolla).
+ - Sicurezza/altre: Qubes OS, Asahi Linux (Apple Silicon), CBL-Mariner (Microsoft), Asianux, Red Star OS.
+ - Non-Linux: RPM e' stato portato anche su AIX, IBM i, NetWare e ArcaOS.
+ - Frontend: lo stesso formato RPM e' interrogato da frontend diversi a seconda della distro: zypper (SUSE), dnf/yum (Red Hat/Fedora), urpmi (Mandriva/Mageia), apt-rpm (Ark/ALT).
+  - Takeaway: "Stesso formato, tanti dialetti: il file .rpm e' identico, cambia solo chi lo installa."
 
 --
 
@@ -486,6 +494,7 @@ Come si costruisce un RPM nativo:
 - Eseguendo `rpmbuild -ba ocio.spec` legge la ricetta in SPECS/ e il tarball in SOURCES/.
 - Esegue prep, build, installazione simulata in una directory di staging (BUILDROOT) e genera sia il pacchetto binario (.rpm) che il pacchetto sorgente (.src.rpm).
 - Il package manager non compila il software; rpmbuild e' il tool dedicato per la creazione dei pacchetti.
+In the wild: Wezterm genera lo spec a runtime con un heredoc dentro ci/deploy.sh, con 3 subpacchetti (wezterm-common, wezterm-gui, wezterm-mux-server) e condizionali %if 0%{?suse_version} / %if 0%{?fedora} per i nomi dei pacchetti. OpenTofu non usa rpmbuild: nFPM assembla il .rpm in-process, senza toolchain esterna.
 
 --
 
@@ -569,6 +578,7 @@ Il flusso con CPack:
 - Bastano poche righe in CMakeLists.txt e lanciare `cpack -G RPM` per ottenere il pacchetto.
 - Genera lo spec internamente e invoca rpmbuild.
 - La build CMake standard conserva DT_NEEDED -> find-requires rileva libOpenGL.so.0 -> si installa e funziona subito ("funziona e basta!").
+In the wild: CPack e' il percorso "artigianale". Le pipeline di produzione arrivano allo stesso .rpm con nFPM (OpenTofu, in-process, senza rpmbuild) o con rpmbuild su uno spec generato (Wezterm). Stesso formato, due vie di accesso.
 
 --
 
@@ -593,6 +603,7 @@ La trappola per chi scrive lo spec:
 - find-requires scansiona unicamente DT_NEEDED: non trova dipendenze grafiche ed emette solo libc e libm.
 - L'RPM compila senza errori, ma Zypper installa solo 1 pacchetto (904 KiB) invece di 36 (53 MiB). Il programma si avvia, ma va in crash all'apertura della finestra!
 - La soluzione: l'autore deve colmare manualmente il punto cieco di dlopen() dichiarando le capability virtuali in ocio.spec tramite Requires: (il blocco di codice sopra).
+In the wild: la trappola e' specifica del C con librerie dinamiche. I binari Go (CGO off) e Rust (statici) non hanno uno stack GL in DT_NEEDED, quindi il punto cieco di find-requires / dpkg-shlibdeps non si presenta. E' per questo che OpenTofu e Wezterm non si scontrano con --as-needed.
 
 --
 
@@ -620,6 +631,14 @@ Confronto diretto con il crash iniziale:
 - Notate la risoluzione transitiva: il loader ha risolto anche le dipendenze secondarie tirate dentro da libglvnd (libGLdispatch, libX11, libxcb).
 - Il costo della delega: per installare il nostro pacchetto da 486 KB, il SAT solver (libsolv) ha selezionato 36 pacchetti dal repository per un totale di 52.6 MiB di download.
 - Il contratto userspace e' ora completamente soddisfatto dalla distribuzione.
+
+Matrice ldd cross-distro (escludendo libraylib, statica in tutti e 4 i flavor funzionanti):
+- openSUSE (fetch-static, fetch-shared, local-static — tutti identici): 9 librerie
+  ld-linux, libc, libm, libOpenGL, libGLX, libGLdispatch, libX11, libxcb, libXau
+- Debian (fetch-static, fetch-shared, local-static — tutti identici): 4 librerie
+  ld-linux, libc, libm
+- Le 6 librerie in più su openSUSE (libOpenGL, libGLX, libGLdispatch, libX11, libxcb, libXau) sono il backend X11/GL di GLFW. La build Debian di raylib collega staticamente il codice X11 di GLFW, quindi restano solo la C runtime e la libreria matematica.
+- All'interno di ogni distro, statico vs condiviso vs fetch vs local non cambia nulla nelle dipendenze non-raylib. È la distro, non il flavor di build, a determinare il footprint di runtime.
 
 --
 
@@ -702,6 +721,28 @@ Ora vediamo cosa c'e' fisicamente dentro un file .deb sul disco.
 
 --
 
+## DEB: Chi lo usa
+<!-- .slide: data-logos="image/debian.png image/ubuntu.png image/linuxmint.png image/kali.png image/deepin.png image/tails.png image/raspberry.png image/devuan.png image/zorin.png image/popos.png image/elementary.png image/parrot.png image/mxlinux.png image/whonix.png image/sparky.png image/pureos.png image/knoppix.png image/trisquel.png image/antix.png image/q4os.png image/peppermint.png image/bodhi.png image/siduction.png image/webconverger.png" -->
+
+  <p class="text-muted" style="margin-bottom: 10px;">Distribuzioni che usano DEB sotto il cofano</p>
+
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Debian</strong>: Debian, Ubuntu, Linux Mint
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Desktop moderne</strong>: Deepin, Zorin OS, Pop!_OS, elementary OS, MX Linux
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Security/privacy</strong>: Kali Linux, Tails, Whonix, Parrot OS
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Embedded/edge</strong>: Raspberry Pi OS
+* <!-- .element: class="fragment" data-fragments="logos" --><strong>Derivati/altre</strong>: Devuan, SparkyLinux, PureOS, KNOPPIX, Trisquel, antiX, Q4OS, Peppermint, Bodhi, siduction, Webconverger
+
+Note:
+  - Famiglia Debian: Debian, Ubuntu (e tutte le sue varianti: Kubuntu, Xubuntu, Lubuntu, Ubuntu MATE, ecc.), Linux Mint.
+  - Desktop moderne: Deepin (GUI proprietaria), Zorin OS (focalizzato su utenti Windows), Pop!_OS (System76), elementary OS (estetica macOS), MX Linux (community, basato su Debian Stable).
+  - Security/privacy: Kali Linux (penetration testing), Tails (portatile, tutto via Tor), Whonix (isolamento Tor), Parrot OS (security + daily driver).
+  - Embedded/edge: Raspberry Pi OS (ex Raspbian) per la SBC piu' diffusa al mondo.
+  - Derivati/altre: Devuan (senza systemd), SparkyLinux (leggero), PureOS (libre, Librem), KNOPPIX (live forensics), Trisquel (100% software libero), antiX (molto leggero), Q4OS (DE KDE/Trinity), Peppermint OS (leggero, cloud-first), Bodhi (Moksha DE), siduction (live, basato su Debian Unstable), Webconverger (browser kiosk).
+  - Frontend: lo stesso formato DEB e' gestito da dpkg (basso livello) e apt (risolutore di dipendenze), indipendentemente dalla distro.
+  - Takeaway: "Stesso formato, stessa policy: il file .deb e' identico, cambia solo la GUI sopra."
+
+--
+
 ## Dentro un DEB: Archivio Unix `ar`
 
 ```text
@@ -738,14 +779,14 @@ Anatomia di un file .deb:
 
 ```text
 $ dpkg-deb -c ocio_0.1.0_amd64.deb
-drwxr-xr-x root/root         0 2026-01-15 10:00 ./
-drwxr-xr-x root/root         0 2026-01-15 10:00 ./usr/
-drwxr-xr-x root/root         0 2026-01-15 10:00 ./usr/bin/
--rwxr-xr-x root/root    497664 2026-01-15 10:00 ./usr/bin/ocio
--rw-r--r-- root/root       245 2026-01-15 10:00 ./usr/share/applications/ocio.desktop
--rw-r--r-- root/root      1892 2026-01-15 10:00 ./usr/share/icons/hicolor/256x256/apps/ocio.png
--rw-r--r-- root/root       612 2026-01-15 10:00 ./usr/share/icons/hicolor/scalable/apps/ocio.svg
--rw-r--r-- root/root       847 2026-01-15 10:00 ./usr/share/metainfo/org.packathon.ocio.metainfo.xml
+drwxr-xr-x root/root         0 ./
+drwxr-xr-x root/root         0 ./usr/
+drwxr-xr-x root/root         0 ./usr/bin/
+-rwxr-xr-x root/root    497664 ./usr/bin/ocio
+-rw-r--r-- root/root       245 ./usr/share/applications/ocio.desktop
+-rw-r--r-- root/root      1892 ./usr/share/icons/hicolor/256x256/apps/ocio.png
+-rw-r--r-- root/root       612 ./usr/share/icons/hicolor/scalable/apps/ocio.svg
+-rw-r--r-- root/root       847 ./usr/share/metainfo/org.packathon.ocio.metainfo.xml
 ```
 
 Note:
@@ -793,20 +834,20 @@ Ispezione del file control:
 
 ## DEB: Dipendenze
 
-* **`dpkg-shlibdeps`**: Scansione automatica dei binari ELF in staging
-* **File `shlibs`**: Ogni pacchetto libreria fornisce un file `*.shlibs` che mappa SONAME → pacchetto + versione
-* **File `symbols`**: Vincoli di versione per simbolo, opzionali e piu' granulari
-* **Contratto generato**: Traduce `DT_NEEDED` ELF → `Depends: ${shlibs:Depends}`
+* **`dpkg-shlibdeps`**: scan ELF in staging
+* **`*.shlibs`**: SONAME → pacchetto + versione
+* **`symbols`**: vincoli per simbolo (opzionale)
+* **Output**: `DT_NEEDED` → `Depends: ${shlibs:Depends}`
 
 Note:
-Gestione delle dipendenze a runtime in Debian:
-- Nessuno scrive a mano Depends: libc6 in debian/control. La riga e' Depends: ${shlibs:Depends}, una variabile di sostituzione.
-- Durante la build, dh_shlibdeps (un wrapper debhelper di dpkg-shlibdeps) scansiona tutti i binari ELF nella directory di staging.
-- Per ogni voce DT_NEEDED, cerca il corrispondente file shlibs in /var/lib/dpkg/info/ (o l'equivalente nel chroot di build) per trovare quale pacchetto fornisce quel SONAME e quale vincolo di versione si applica.
-- La dualita' a runtime e' la stessa di RPM:
-  1. Le librerie collegate normalmente compaiono in DT_NEEDED: dpkg-shlibdeps le legge in automatico ed emette i requisiti del pacchetto.
-  2. Le librerie caricate a runtime tramite dlopen() sono invisibili a dpkg-shlibdeps perche' non compaiono nella sezione dinamica ELF.
-- Il formato dei file shlibs: una riga per SONAME, es. libOpenGL.so.0 libgl1 (>= 1.3.2). Il file symbols (quando presente) fornisce vincoli di versione per singolo simbolo, abilitando il tracciamento esatto dell'ABI.
+- `debian/control`: `Depends: ${shlibs:Depends}` (variabile, non a mano)
+- Build: `dh_shlibdeps` (debhelper) → `dpkg-shlibdeps`
+- Scan ELF in staging → per ogni `DT_NEEDED`: lookup `*.shlibs` in `/var/lib/dpkg/info/` → (pacchetto, versione)
+- Dualita' come RPM: `DT_NEEDED` visto / `dlopen()` invisibile
+- `shlibs`: 1 riga per SONAME, es. `libOpenGL.so.0 libgl1 (>= 1.3.2)`
+- `symbols`: vincoli per simbolo → tracciamento ABI esatto
+- In the wild: Wezterm → `dpkg-shlibdeps -O -e debian/usr/bin/*` in container target
+- Demo live (4 passi): `packaging/packator.sh debian builder packaging/demo/demo-deb.sh --deb dist/ocio_0.1.0_amd64.deb --bin build-debian-static/bin/ocio --bin-shared build-debian-shared/bin/ocio`
 
 --
 
@@ -896,6 +937,7 @@ Come si costruisce un DEB nativo:
 - Gli artefatti prodotti sono il pacchetto binario (.deb), il log di compilazione e il file .changes contenente i metadati per il caricamento nell'archivio.
 - Nel repository la ricetta canonica vive in packaging/deb/debian/ (control, rules, changelog, source/format); build-deb.sh --mode debhelper la collega alla radice dei sorgenti e lancia dpkg-buildpackage -us -uc -b -d.
 - La stessa build-deb.sh offre un secondo dialetto, --mode frugal: niente debhelper, si staggia il payload in uno skeleton FHS, si calcolano md5sums e Installed-Size a mano e si assembla l'archivio con dpkg-deb. Stesso formato ar, stessa dipendenza da dpkg-shlibdeps: due dialetti, un solo formato.
+In the wild: a scala di produzione i due dialetti si estendono. OpenTofu usa nFPM (in-process, senza dpkg-deb né debhelper). Wezterm usa dpkg-deb + dpkg-shlibdeps nativi dentro il container Debian. Stesso formato ar, tre vie di accesso.
 
 --
 
@@ -1145,6 +1187,8 @@ AppDir/
 | `linuxdeploy --appdir AppDir ...` + `appimagetool` | **Il tool**: legge `DT_NEEDED`, copia, imposta `RUNPATH` |
 <!-- .element: class="fragment" -->
 
+* <!-- .element: class="fragment" --> <strong>In produzione</strong>: Wezterm usa `linuxdeploy` + zsync ([ci/appimage.sh](https://github.com/wezterm/wezterm/blob/master/ci/appimage.sh))
+
 Note:
 Un AppImage e' un albero di directory compresso, l'AppDir:
 - AppRun e' il punto di ingresso (qui un symlink al binario).
@@ -1154,6 +1198,7 @@ Due ricette, entrambe in packaging/appimage/build-appimage.sh --method {linuxdep
 - appimagetool a mano: assembliamo noi l'AppDir (install CMake, .desktop, icona, symlink AppRun). appimagetool comprime l'albero e ci mette davanti il runtime, niente di piu'. Non guarda mai le dipendenze: se il binario richiede una libreria che sull'host non c'e', nessuno ti avvisa.
 - linuxdeploy (default dello script): percorre l'albero DT_NEEDED, copia in usr/lib ogni libreria che non e' nella excludelist di AppImage, imposta RUNPATH=$ORIGIN/../lib con patchelf, fa lo strip e crea AppRun. Poi appimagetool impacchetta il risultato.
 - linuxdeploy e appimagetool sono a loro volta AppImage. Le immagini builder li contengono gia' estratti, quindi girano senza FUSE; lo script non scarica nulla e, se manca un tool, fallisce con le istruzioni per installarlo.
+In the wild: Wezterm e' un utente di linuxdeploy in produzione. ci/appimage.sh scarica linuxdeploy dal release continuous, lo punta su AppDir, e imposta UPDATE_INFORMATION con lo schema gh-releases-zsync affinche' l'AppImage possa auto-aggiornarsi da GitHub Releases. E' la stessa ricetta della slide, ma con il self-update incorporato.
 Messaggio chiave: "autocontenuto" non e' una proprieta' del formato. E' un lavoro di packaging, e la domanda successiva e': cosa va dentro la scatola?
 
 --
@@ -1244,6 +1289,7 @@ Il limite:
 Nota a margine:
 - L'AppImage compilato su Debian parte e stampa --version nello stesso container.
 - Non e' una scatola migliore: --as-needed ha tolto GL da DT_NEEDED, quindi fallisce piu' tardi, quando GLFW fa dlopen() di Xlib.
+In the wild: Wezterm applica la stessa idea dell'excludelist a una singola libreria: passa --exclude-library=libwayland-client.so.0 a linuxdeploy per non includere una libreria che l'app non usa a runtime. L'excludelist e' un documento di lavoro; il flag e' la sua forma chirurgica.
 
 --
 
@@ -1294,6 +1340,7 @@ Introduciamo Flatpak:
   1. Separazione tra Runtime e Applicazione: Le app poggiano su runtime versionati (org.freedesktop.Platform, GNOME, KDE) anziché su /usr dell'host.
   2. Storage con OSTree: "Git per binari", con deduplicazione tramite hardlink su disco e aggiornamenti atomici a delta.
   3. Sandbox non privilegiata: Isolamento tramite Bubblewrap (bwrap) con namespace del kernel, cgroups e seccomp, con accesso a display e file mediato dai Portali Desktop XDG.
+In the wild: Wezterm costruisce il suo Flatpak contro lo stesso runtime org.freedesktop.Platform//25.08 che usa ocio, piu' Sdk//25.08 e Sdk.Extension.rust-stable//25.08. Stesso runtime, due progetti indipendenti.
 
 --
 
@@ -1381,6 +1428,7 @@ OSTree e' il motore di storage sotto ogni Flatpak:
 - Le delta sono la diff tra due commit. --generate-static-deltas le precalcola affinche' un client che aggiorna da v0.1.0 a v0.1.1 scarichi solo i file cambiati, non l'intera app.
 - Poiche' un repo archive-z2 e' solo file statici (objects/, refs/, summary), qualsiasi server HTTP puo' servirlo. E' per questo che il nostro workflow pages.yml deploya il repo su GitHub Pages insieme alle slide, e gli utenti ottengono flatpak update gratis.
 - Walkthrough pratico completo: ideas/OSTree_tutorial.md.
+In the wild: Wezterm usa flatpak-cargo-generator per leggere Cargo.lock ed emettere un generated-sources.json che elenca le crate esatte da fetchare dentro la sandbox. E' l'analogo Rust del FetchContent di ocio: un lockfile che rende la build riproducibile dentro un ambiente senza rete.
 
 --
 
@@ -1435,6 +1483,10 @@ Spiegare l'apertura dei varchi (hole-punching):
 </div>
 </div>
 
+<p class="fragment text-info" style="margin-top: 25px;">
+<strong>Due pipeline reali</strong>: <a href="https://github.com/opentofu/opentofu" target="_blank">OpenTofu</a> (Go, GoReleaser, triplo-signed) &middot; <a href="https://github.com/wezterm/wezterm" target="_blank">Wezterm</a> (Rust, per-distro, unsigned)
+</p>
+
 Note:
 La tesi centrale dell'Atto 3:
 - Creare un .deb o un .rpm con CPack o alien e' tecnicamente banale, ma genera un artefatto orfano.
@@ -1467,6 +1519,7 @@ Il paradosso del ciclo di vita del software:
 - Il canale non deve essere Flathub: un repository OSTree e' un semplice albero di file statico (commit + summary in formato archive-z2). Per questo lo stesso meccanismo funziona su GitHub Pages: ogni push a main genera un nuovo commit firmato, e l'utente riceve l'aggiornamento con un normale flatpak update.
 - AppImage e' completamente isolato di base. L'aggiornamento richiede l'inserimento di una nota ELF .upd_info nell'eseguibile che punti a un file di controllo zsync su un server remoto.
 - Regola fondamentale di sicurezza: distribuire un binario senza un canale di aggiornamento significa lasciare le vulnerabilita' permanentemente sulle macchine degli utenti.
+In the wild: Wezterm implementa esattamente questo meccanismo. ci/appimage.sh imposta UPDATE_INFORMATION con lo schema gh-releases-zsync|wez|wezterm|latest|WezTerm-*.AppImage.zsync, e il file .zsync viene caricato accanto all'AppImage su GitHub Releases. L'AppImage si aggiorna in modo incrementale da li.
 
 --
 
@@ -1485,6 +1538,10 @@ Il paradosso del ciclo di vita del software:
 <strong>2026</strong>: <em>Sigstore / Keyless</em> per la CI; i keyring GPG restano obbligatori in distro.
 </p>
 
+<p class="fragment" style="margin-top: 15px;">
+<strong>In produzione</strong>: OpenTofu firma 3 volte (GPG interno + detached + cosign); Wezterm solo SHA256
+</p>
+
 Note:
 Le implicazioni di sicurezza delle firme digitali:
 - Nella demo live abbiamo dovuto usare --allow-unsigned-rpm. In produzione e' un rischio critico: i pacchetti RPM e DEB possono contenere scriptlet di manutenzione eseguiti come root.
@@ -1495,6 +1552,7 @@ Le implicazioni di sicurezza delle firme digitali:
   3. Flatpak verifica crittograficamente i commit e i sommari OSTree a ogni pull.
   4. AppImage supporta firme incorporate, ma l'avvio standard in spazio utente non esegue alcun controllo forzato.
 - Tendenza moderna: Sigstore e cosign abilitano provenienza keyless per le release su GitHub, ma le distribuzioni continuano a pretendere anelli di chiavi GPG.
+In the wild: OpenTofu firma ogni artefatto tre volte: GPG interno al pacchetto (nFPM), GPG detached (.gpgsig), e cosign/Sigstore (.sig + .pem). Wezterm non firma: solo SHA256 per file. La scelta e' un trade-off: OpenTofu scambia breadth per firma forte; Wezterm scambia firma per packaging nativo per-distro.
 
 --
 
@@ -1514,6 +1572,7 @@ La realta' dell'SBOM nel software di sistema:
   2. Tempo di esecuzione: X11, OpenGL e libc sono totalmente assenti dal repository sorgente; vengono risolti dinamicamente dall'host al momento del lancio.
 - Il Paradosso dell'SBOM in C: le dipendenze sono divise tra tempo di compilazione e tempo di installazione. Un SBOM completo non si deduce dal codice sorgente: richiede l'osservazione della build dentro un build service isolato.
 - E' impossibile generare una Software Bill of Materials accurata scansionando solo git. E' necessario catturare l'ambiente di build ermetico (SPDX / CycloneDX generati dentro OBS o Koji).
+In the wild: Wezterm (Rust) ha esattamente il lockfile che la slide dice che il C non ha: Cargo.lock, vendored con cargo vendor --locked --versioned-dirs, e flatpak-cargo-generator che lo traduce in generated-sources.json per la build sandboxed. Il paradosso e' specifico del C con CMake, non del packaging in generale.
 
 ---
 

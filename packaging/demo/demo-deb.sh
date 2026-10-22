@@ -19,11 +19,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 PAUSE_MODE=false
 DRY_RUN=false
 BINARY_CANDIDATE=""
+BINARY_SHARED_CANDIDATE=""
 DEB_CANDIDATE=""
 
 usage() {
@@ -34,6 +34,8 @@ usage() {
     echo "Options:"
     echo "  --deb, -deb PATH Explicit path to the ocio DEB package for inspection"
     echo "  --bin PATH       Explicit path to the ocio binary for dependency inspection"
+    echo "  --bin-shared PATH  Path to a shared-raylib ocio binary (demonstrates the"
+    echo "                     dpkg-shlibdeps failure mode for source-built libraries)"
     echo "  -p, --pause      Pause and wait for [Enter] before executing each demo command"
     echo "  -d, --dry-run    Dry-run mode: only print commands without executing them"
     echo "  -h, --help       Show this help message"
@@ -66,6 +68,18 @@ while [ $# -gt 0 ]; do
             BINARY_CANDIDATE="${1#--bin=}"
             shift
             ;;
+        --bin-shared)
+            if [ $# -lt 2 ] || [ -z "$2" ]; then
+                echo "Error: --bin-shared requires a path argument" >&2
+                exit 1
+            fi
+            BINARY_SHARED_CANDIDATE="$2"
+            shift 2
+            ;;
+        --bin-shared=*)
+            BINARY_SHARED_CANDIDATE="${1#--bin-shared=}"
+            shift
+            ;;
         -p|--pause)
             PAUSE_MODE=true
             shift
@@ -89,36 +103,38 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Resolve DEB candidate if not explicitly provided
+# All targets must be provided explicitly: no auto-discovery.
 if [ -z "${DEB_CANDIDATE}" ]; then
-    for candidate in "${REPO_ROOT}/dist/"ocio_*.deb "${REPO_ROOT}/dist/"ocio-*.deb; do
-        if [ -f "${candidate}" ]; then
-            DEB_CANDIDATE="${candidate}"
-            break
-        fi
-    done
-fi
-
-if [ -n "${DEB_CANDIDATE}" ]; then
-    DEB_CANDIDATE="$(cd "$(dirname "${DEB_CANDIDATE}")" && pwd)/$(basename "${DEB_CANDIDATE}")"
-    if [ ! -f "${DEB_CANDIDATE}" ]; then
-        echo "Error: DEB file does not exist: '${DEB_CANDIDATE}'" >&2
-        exit 1
-    fi
+    echo "Error: --deb is required. Build a package first (packaging/deb/build-deb.sh) or pass an existing file." >&2
+    exit 1
 fi
 
 if [ -z "${BINARY_CANDIDATE}" ]; then
-    if [ -f "${REPO_ROOT}/dist/ocio" ]; then
-        BINARY_CANDIDATE="${REPO_ROOT}/dist/ocio"
-    fi
+    echo "Error: --bin is required. Pass the path to a compiled ocio binary (e.g. build-debian-static/bin/ocio)." >&2
+    exit 1
 fi
 
-if [ -n "${BINARY_CANDIDATE}" ]; then
-    BINARY_CANDIDATE="$(cd "$(dirname "${BINARY_CANDIDATE}")" && pwd)/$(basename "${BINARY_CANDIDATE}")"
-    if [ ! -f "${BINARY_CANDIDATE}" ]; then
-        echo "Error: --bin file does not exist: '${BINARY_CANDIDATE}'" >&2
-        exit 1
-    fi
+if [ -z "${BINARY_SHARED_CANDIDATE}" ]; then
+    echo "Error: --bin-shared is required. Pass a shared-raylib ocio binary (e.g. build-debian-shared/bin/ocio)." >&2
+    exit 1
+fi
+
+DEB_CANDIDATE="$(cd "$(dirname "${DEB_CANDIDATE}")" && pwd)/$(basename "${DEB_CANDIDATE}")"
+if [ ! -f "${DEB_CANDIDATE}" ]; then
+    echo "Error: DEB file does not exist: '${DEB_CANDIDATE}'" >&2
+    exit 1
+fi
+
+BINARY_CANDIDATE="$(cd "$(dirname "${BINARY_CANDIDATE}")" && pwd)/$(basename "${BINARY_CANDIDATE}")"
+if [ ! -f "${BINARY_CANDIDATE}" ]; then
+    echo "Error: --bin file does not exist: '${BINARY_CANDIDATE}'" >&2
+    exit 1
+fi
+
+BINARY_SHARED_CANDIDATE="$(cd "$(dirname "${BINARY_SHARED_CANDIDATE}")" && pwd)/$(basename "${BINARY_SHARED_CANDIDATE}")"
+if [ ! -f "${BINARY_SHARED_CANDIDATE}" ]; then
+    echo "Error: --bin-shared file does not exist: '${BINARY_SHARED_CANDIDATE}'" >&2
+    exit 1
 fi
 
 # Formatting helpers
@@ -249,8 +265,9 @@ else
     echo -e "Package Status   : ${YELLOW}NOT INSTALLED${RESET} (read-only inspection mode)"
 fi
 
-echo -e "DEB Target       : ${DEB_CANDIDATE:-None detected (run packaging/deb/build-deb.sh or use --deb)}"
-echo -e "Binary Target    : ${BINARY_CANDIDATE:-None specified (use --bin /path/to/binary)}"
+echo -e "DEB Target       : ${DEB_CANDIDATE}"
+echo -e "Binary Target    : ${BINARY_CANDIDATE}"
+echo -e "Shared-Raylib Bin: ${BINARY_SHARED_CANDIDATE}"
 
 # -----------------------------------------------------------------------------
 # Tool Requirements & Inspection Capability
@@ -311,38 +328,57 @@ if [ "${PAUSE_MODE}" = true ]; then
     echo -e "Execution Mode   : ${YELLOW}PAUSE/STEP (waiting for [Enter] before each command)${RESET}"
 fi
 
-if [ -z "${DEB_CANDIDATE}" ]; then
-    echo ""
-    info "No DEB package found. Please build one first with:"
-    echo -e "  ${BOLD}packaging/deb/build-deb.sh${RESET}"
-    echo -e "  or pass an existing file with: ${BOLD}--deb /path/to/file.deb${RESET}"
+# -----------------------------------------------------------------------------
+# Section 1: Binary Inspection & dpkg-shlibdeps Mechanism
+# -----------------------------------------------------------------------------
+banner "Section 1: Binary Inspection & dpkg-shlibdeps Mechanism"
+echo "Explanation: Linux binaries record their direct shared library dependencies"
+echo "in DT_NEEDED tags. dpkg-shlibdeps reads those tags and maps every SONAME to a"
+echo "(package, version) pair using the *.shlibs files of installed packages."
+echo "The mechanism in four steps:"
+echo "  1. readelf -d    : what the binary asks for (DT_NEEDED)"
+echo "  2. *.shlibs      : the lookup database (one line per SONAME)"
+echo "  3. dpkg-shlibdeps: the scan (needs a debian/control in the working tree)"
+echo "  4. failure mode  : a SONAME with no shlibs entry aborts the build"
+
+if [ "${HAVE_FILE}" = true ] || [ "${DRY_RUN}" = true ]; then
+    demo_cmd "file \"${BINARY_CANDIDATE}\"" "Inspecting binary format and architecture:"
 fi
 
-# -----------------------------------------------------------------------------
-# Section 1: Binary & Linker Inspection
-# -----------------------------------------------------------------------------
-banner "Section 1: Binary & Linker Inspection"
-echo "Explanation: Linux binaries record their direct shared library dependencies"
-echo "in DT_NEEDED tags. The Debian build toolchain uses 'dpkg-shlibdeps' to inspect"
-echo "compiled binaries and map DT_NEEDED SONAMEs to virtual package dependencies."
+if [ "${HAVE_LDD}" = true ] || [ "${DRY_RUN}" = true ]; then
+    demo_cmd "ldd \"${BINARY_CANDIDATE}\"" "Inspecting dynamic linker dependencies with ldd:" \
+        "  ${DIM}Notice: ldd only shows direct DT_NEEDED links (libc, libm).\n  Dynamic loaders like GLFW open libX11 and libGLX via dlopen() at runtime.${RESET}"
+fi
 
-if [ -n "${BINARY_CANDIDATE}" ]; then
-    if [ "${HAVE_FILE}" = true ] || [ "${DRY_RUN}" = true ]; then
-        demo_cmd "file \"${BINARY_CANDIDATE}\"" "Inspecting binary format and architecture:"
-    fi
+if [ "${HAVE_DPKG_SHLIBDEPS}" = true ] || [ "${DRY_RUN}" = true ]; then
+    demo_cmd "readelf -d \"${BINARY_CANDIDATE}\" | grep NEEDED" \
+        "Step 1 - What the binary asks for (DT_NEEDED entries):" \
+        "  ${DIM}These SONAMEs are the input to dpkg-shlibdeps.${RESET}"
 
-    if [ "${HAVE_LDD}" = true ] || [ "${DRY_RUN}" = true ]; then
-        demo_cmd "ldd \"${BINARY_CANDIDATE}\"" "Inspecting dynamic linker dependencies with ldd:" \
-            "  ${DIM}Notice: ldd only shows direct DT_NEEDED links (libc, libm).\n  Dynamic loaders like GLFW open libX11 and libGLX via dlopen() at runtime.${RESET}"
-    fi
+    demo_cmd "ls /var/lib/dpkg/info/*.shlibs | head -10" \
+        "Step 2a - The lookup database: every library package ships a *.shlibs file:" \
+        "  ${DIM}One file per package, one line per SONAME it provides.${RESET}"
 
-    if [ "${HAVE_DPKG_SHLIBDEPS}" = true ] || [ "${DRY_RUN}" = true ]; then
-        demo_cmd "dpkg-shlibdeps -O \"${BINARY_CANDIDATE}\"" \
-            "Computing package dependency substitutions via dpkg-shlibdeps:" \
-            "  ${DIM}Notice the output: shlibs:Depends=libc6 (>= ...).\n  dpkg-shlibdeps automatically calculates the glibc symbol ABI floor.${RESET}"
-    fi
+    demo_cmd "cat /var/lib/dpkg/info/libc6:amd64.shlibs" \
+        "Step 2b - The libc6 shlibs table (libtool name + ABI version -> package + version):" \
+        "  ${DIM}dpkg-shlibdeps converts libm.so.6 -> 'libm 6' before the lookup.${RESET}"
+
+    SHLIB_TEST_DIR="$(mktemp -d /tmp/demo-shlibdeps.XXXXXX)"
+    trap 'rm -rf "${SHLIB_TEST_DIR}"' EXIT
+
+    demo_cmd "mkdir -p \"${SHLIB_TEST_DIR}/debian/ocio/usr/bin\" && cp \"${SCRIPT_DIR}/../deb/skeleton/DEBIAN/control\" \"${SHLIB_TEST_DIR}/debian/control\" && cp \"${BINARY_CANDIDATE}\" \"${SHLIB_TEST_DIR}/debian/ocio/usr/bin/ocio\"" \
+        "Step 3a - Staging: dpkg-shlibdeps requires a debian/control in the working tree:" \
+        "  ${DIM}Even with -O on a bare binary, the control file is mandatory.\n  We stage the binary in a temporary FHS skeleton (the same layout build-deb.sh uses).${RESET}"
+
+    demo_cmd "cd \"${SHLIB_TEST_DIR}\" && dpkg-shlibdeps -O debian/ocio/usr/bin/ocio" \
+        "Step 3b - The scan: DT_NEEDED -> shlibs lookup -> substitution variable:" \
+        "  ${DIM}Output: shlibs:Depends=libc6 (>= ...).\n  This is the value that goes into debian/control as \${shlibs:Depends}.\n  Note: the version floor comes from the .symbols file when present (finer than .shlibs).${RESET}"
+
+    demo_cmd "cd \"${SHLIB_TEST_DIR}\" && cp \"${BINARY_SHARED_CANDIDATE}\" debian/ocio/usr/bin/ocio-shared && dpkg-shlibdeps -O debian/ocio/usr/bin/ocio-shared" \
+        "Step 4 - Failure mode: a SONAME with no shlibs entry (source-built library):" \
+        "  ${DIM}Expected: 'error: no dependency information found for .../libraylib.so.550'.\n  Neither -e nor -x skips the lookup. The only fixes: ship a libraylib550\n  package with its own .shlibs file, or do not link the library.${RESET}"
 else
-    skip "No binary specified. Pass --bin /path/to/binary to inspect binary dependencies."
+    skip "dpkg-shlibdeps is not available (package: dpkg-dev). Skipping the mechanism demo."
 fi
 
 # -----------------------------------------------------------------------------
@@ -443,7 +479,9 @@ fi
 # -----------------------------------------------------------------------------
 banner "Summary & Pedagogical Conclusion"
 echo -e "- ${BOLD}Archive Mechanics${RESET}     : Standard Unix ar archive holding debian-binary, control, and data."
-echo -e "- ${BOLD}Computed Dependencies${RESET} : dpkg-shlibdeps extracts libc6 symbol baseline automatically."
+echo -e "- ${BOLD}Computed Dependencies${RESET} : dpkg-shlibdeps maps DT_NEEDED SONAMEs via *.shlibs to (package, version)."
+echo -e "- ${BOLD}Version Floor${RESET}         : Comes from the .symbols file when present (finer-grained than .shlibs)."
+echo -e "- ${BOLD}Source-Built Libraries${RESET}: No shlibs entry -> build aborts. Ship a sibling package or do not link."
 echo -e "- ${BOLD}Explicit Dependencies${RESET} : Runtime dlopen targets (libglx0, libx11-6) declared in debian/control."
 echo -e "- ${BOLD}dpkg vs APT Contract${RESET}  : dpkg unpacks; APT solves the dependency graph and schedules install."
 echo -e "- ${BOLD}Integrity Auditing${RESET}    : dpkg --verify compares on-disk files against md5sums."
