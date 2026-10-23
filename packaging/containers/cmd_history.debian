@@ -104,8 +104,11 @@ ls -la squashfs-root
 objdump -T squashfs-root/usr/local/bin/ocio | grep -E "GLIBC_2\." | sort -V | tail -n 5
 
 # === Route 3: Flatpak & Sandbox Dissection ===
-flatpak info --bundle dist/ocio.flatpak
-flatpak install --user -y --noninteractive dist/ocio.flatpak
+flatpak install --user -y --noninteractive --no-deps --no-related dist/ocio.flatpak
+flatpak info org.packathon.ocio
+flatpak info --show-deps org.packathon.ocio
+flatpak list --app
+flatpak list --runtime
 flatpak remote-add --user --if-not-exists packathon https://michelepagot.github.io/packathon/org.packathon.ocio.flatpakrepo
 flatpak install --user -y packathon org.packathon.ocio
 flatpak install --user -y https://michelepagot.github.io/packathon/org.packathon.ocio.flatpakref

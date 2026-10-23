@@ -144,12 +144,13 @@ RUN ARCH=$(uname -m) && \
     mv "/tmp/runtime-${ARCH}" "/usr/lib/runtime-${ARCH}"
 
 # Pre-install Flatpak runtime and SDK for building org.packathon.ocio.
-# The remote is deleted afterwards so no network remote remains configured.
+# The remote is disabled (not deleted) afterwards so that canonical tracking
+# refs are preserved for offline tooling (build-bundle --runtime, ostree pull-local).
 RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && \
     flatpak install -y --noninteractive flathub \
         org.freedesktop.Platform//25.08 \
         org.freedesktop.Sdk//25.08 && \
-    flatpak remote-delete --force flathub
+    flatpak remote-modify --disable flathub
 
 WORKDIR /src
 
