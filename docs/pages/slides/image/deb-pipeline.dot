@@ -1,0 +1,34 @@
+digraph deb_pipeline {
+    rankdir=TB;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=16, style="filled"];
+    edge [fontname="Helvetica", fontsize=14, fontcolor="white", color="white"];
+
+    in_ctrl [shape=box, fillcolor="#4B5563", fontcolor="white", label="Input: debian/control & debian/rules"];
+    in_src [shape=box, fillcolor="#4B5563", fontcolor="white", label="Input: Upstream Source Tree"];
+    cli [shape=box, fillcolor="#059669", fontcolor="white", label="dpkg-buildpackage / debuild\ndpkg-architecture: Sets DEB_HOST_ARCH\ndpkg-checkbuilddeps: Verifies Build-Depends"];
+    phases [shape=box, fillcolor="#059669", fontcolor="white", label="dh_auto_build / dh_auto_install"];
+    stage [shape=box, fillcolor="#7C3AED", fontcolor="white", label="Staging Dir: debian/<package>/"];
+    depgen [shape=box, fillcolor="#059669", fontcolor="white", label="dpkg-shlibdeps: Inspect ELF via readelf -d"];
+    lookup [shape=box, fillcolor="#7C3AED", fontcolor="white", label="Lookup: /var/lib/dpkg/info/*.shlibs"];
+    subst [shape=box, fillcolor="#7C3AED", fontcolor="white", label="Depends: libraylib5 (>= 5.0)"];
+    gencontrol [shape=box, fillcolor="#059669", fontcolor="white", label="dpkg-gencontrol"];
+    control [shape=box, fillcolor="#7C3AED", fontcolor="white", label="DEBIAN/control"];
+    pack [shape=box, fillcolor="#059669", fontcolor="white", label="dh_builddeb (dpkg-deb): Compress into .deb"];
+    out [shape=cylinder, fillcolor="#7C3AED", fontcolor="white", label="Final: .deb archive"];
+
+    in_ctrl -> cli;
+    in_src -> phases;
+    cli -> phases;
+    phases -> stage;
+    stage -> depgen;
+    depgen -> lookup [dir=both];
+    depgen -> subst;
+    subst -> gencontrol;
+    gencontrol -> control;
+    control -> pack;
+    stage -> pack;
+    pack -> out;
+
+    { rank=same; in_ctrl; in_src; }
+}
