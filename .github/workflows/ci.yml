@@ -261,17 +261,13 @@ jobs:
             debian:bookworm-slim \
             sh -c "apt-get update && apt-get install -y /ocio.deb && ocio --version && ocio --help"
 
-      - name: "Build Mode: SHARED (libraylib.so, TGZ only)"
+      - name: "Build Mode: SHARED (libraylib.so)"
         run: |
           rm -rf dist
-          # SHARED mode links libraylib.so, which is not installed into the
-          # package, so dpkg-shlibdeps cannot resolve it and DEB generation
-          # fails. Pass TGZ explicitly to skip the DEB generator here; the
-          # DEB is verified from the static FETCH build above.
           podman run --rm -v "$PWD:/src:Z" -w /src \
             -e RAYLIB_SHARED=ON \
             localhost/packathon-debian:builder \
-            packaging/containers/build-package.sh TGZ
+            packaging/containers/build-package.sh
 
       - name: "Verify dynamic raylib linkage (Debian SHARED mode)"
         run: |
