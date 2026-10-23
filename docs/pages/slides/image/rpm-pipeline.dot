@@ -1,0 +1,32 @@
+digraph rpm_pipeline {
+    rankdir=TB;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=16, style="filled"];
+    edge [fontname="Helvetica", fontsize=14, fontcolor="white", color="white"];
+
+    in_spec [shape=box, fillcolor="#4B5563", fontcolor="white", label="Input: package.spec"];
+    in_src [shape=box, fillcolor="#4B5563", fontcolor="white", label="Input: Source Tarballs & Patches"];
+    cli [shape=box, fillcolor="#059669", fontcolor="white", label="rpmbuild -ba package.spec"];
+    env [shape=box, fillcolor="#059669", fontcolor="white", label="Environment Setup: %{optflags}, RPM_BUILD_ROOT"];
+    phases [shape=box, fillcolor="#059669", fontcolor="white", label="%prep / %build / %install"];
+    check [shape=box, fillcolor="#059669", fontcolor="white", label="%check: Run Unit/Integration Tests"];
+    depgen [shape=box, fillcolor="#059669", fontcolor="white", label="find-requires & find-provides: Inspect ELF DT_NEEDED"];
+    buildroot [shape=box, fillcolor="#7C3AED", fontcolor="white", label="Staging Dir: %{buildroot}"];
+    meta_out [shape=box, fillcolor="#7C3AED", fontcolor="white", label="Requires: libraylib.so.5()(64bit)"];
+    pack [shape=box, fillcolor="#059669", fontcolor="white", label="Payload Packaging: Bundle into cpio archive"];
+    out [shape=cylinder, fillcolor="#7C3AED", fontcolor="white", label="Final: .rpm & .src.rpm"];
+
+    in_spec -> cli;
+    in_src -> phases;
+    cli -> env;
+    env -> phases;
+    phases -> buildroot;
+    buildroot -> check;
+    check -> depgen;
+    depgen -> meta_out;
+    meta_out -> pack;
+    buildroot -> pack;
+    pack -> out;
+
+    { rank=same; in_spec; in_src; }
+}

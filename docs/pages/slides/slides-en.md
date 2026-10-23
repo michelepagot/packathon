@@ -466,10 +466,9 @@ Header inspection:
 
 ## Cooking an RPM
 
-* **Tool**: `rpmbuild` (from `rpm-build`)
-* **Recipe**: The `.spec` file (`ocio.spec`)
-* **Tree**: `SOURCES/`, `SPECS/`, `BUILD/`, `BUILDROOT/`, `RPMS/`, `SRPMS/`
-* **Workflow**: `rpmbuild -ba ocio.spec`
+<div style="text-align: center;">
+<img src="image/rpm-pipeline.png" alt="RPM build pipeline" style="max-height: 620px; width: auto;" />
+</div>
 
 Note:
 How native RPMs are built:
@@ -590,6 +589,81 @@ In the wild: the trap is specific to C with dynamic libraries. Go (CGO off) and 
 
 --
 
+## DEB: Dependencies
+
+* **`dpkg-shlibdeps`**: scan ELF in staging
+* **`*.shlibs`**: SONAME → package + version
+* **`symbols`**: per-symbol constraints (optional)
+* **Output**: `DT_NEEDED` → `Depends: ${shlibs:Depends}`
+
+Note:
+- `debian/control`: `Depends: ${shlibs:Depends}` (variable, not manual)
+- Build: `dh_shlibdeps` (debhelper) → `dpkg-shlibdeps`
+- Scan ELF in staging → per `DT_NEEDED`: lookup `*.shlibs` in `/var/lib/dpkg/info/` → (package, version)
+- Duality as RPM: `DT_NEEDED` seen / `dlopen()` invisible
+- `shlibs`: 1 line per SONAME, e.g. `libOpenGL.so.0 libgl1 (>= 1.3.2)`
+- `symbols`: per-symbol constraints → exact ABI tracking
+- In the wild: Wezterm → `dpkg-shlibdeps -O -e debian/usr/bin/*` in target container
+- Live demo (4 steps): `packaging/packator.sh debian builder packaging/demo/demo-deb.sh --deb dist/ocio_0.1.0_amd64.deb --bin build-debian-static/bin/ocio --bin-shared build-debian-shared/bin/ocio`
+- Failure-mode difference vs RPM: here the library must be a known package (with a readable shlibs file) or the build fails loudly. In RPM, find-requires emits the SONAME as a capability with no package database needed.
+
+--
+
+## DEB: The *.shlibs Lookup
+
+```text
+$ apt install libgl1
+```
+
+```text
+$ cat /var/lib/dpkg/info/libgl1:amd64.shlibs
+libOpenGL.so.0 libgl1 (>= 1.3.2)
+libGL.so.1 libgl1 (>= 1.3.2)
+```
+
+* **Placed by**: `apt install` / `dpkg -i`
+* **Used by**: `dpkg-shlibdeps` to map SONAME &rarr; (package, version)
+
+Note:
+The *.shlibs lookup table:
+- Every package that ships a shared library must ship a .shlibs file in /var/lib/dpkg/info/. The file is named <package>:<arch>.shlibs and contains one line per library the package provides.
+- The left column is the libtool form (name + ABI version), not the raw SONAME string. dpkg-shlibdeps converts libm.so.6 -> libm 6 before the lookup.
+- The file is placed on the build machine when the package is installed (apt install or dpkg -i). It is not part of the source tree; it is part of the installed system.
+- This is the "package database" that dpkg-shlibdeps needs to map a SONAME to a (package, version) pair. Without it, the mapping is impossible.
+- RPM contrast (speaker only): find-requires needs no such database. It reads DT_NEEDED and emits the SONAME as a capability (libraylib.so.550()(64bit)) directly. The DEB side needs the extra SONAME-to-package hop, and that hop is where a source-built library breaks.
+
+--
+
+## DEB: Shared Raylib
+
+* **`RAYLIB_SHARED=ON`**: `ocio` links `libraylib.so.550` (built from source)
+
+```text
+$ readelf -d .../libraylib.so.550 | grep SONAME
+  (SONAME) Library soname: [libraylib.so.550]
+```
+<!-- .element: class="fragment" -->
+
+```text
+$ grep -r "libraylib" /var/lib/dpkg/info/*.shlibs
+(no result)
+```
+<!-- .element: class="fragment" -->
+
+* **No `*.shlibs` entry** &rarr; `Depends:` uncomputable &rarr; build aborts
+* **Fix**: ship a `libraylib550` package (no distro provides it)
+* **Demo**: [PR #27](https://github.com/michelepagot/packathon/pull/27) (intentionally red)
+
+Note:
+Where does the shared library live?
+- RAYLIB_SHARED=ON makes ocio link libraylib.so.550, built from source via FetchContent. A DEB cannot bundle an arbitrary .so and claim a dependency on it: dpkg-shlibdeps must map the SONAME to a (package, version) using the *.shlibs files of installed packages.
+- The build machine must have the library installed as a known package (with a readable .shlibs file). A source-built .so in the build tree is not enough: no package owns it, no .shlibs entry exists, the lookup fails, and the build aborts.
+- Verified distro facts: Debian ships no raylib at all (apt-cache showpkg libraylib -> Unable to locate package). openSUSE ships raylib 6.0, SONAME libraylib.so.600, not the 5.5 ocio needs (rpm -q --whatprovides 'libraylib.so.550()(64bit)' -> no package). So neither distro provides the matching SONAME; a libraylib550 package would have to be contributed.
+- Three options (speaker analysis): (1) ship libraylib550 as a sibling package with a Depends: line - the correct fix, out of scope for the talk; (2) SHLIBDEPS_PRIVATE_DIRS - a trap, it converts a loud build failure into a silent runtime failure; (3) skip the DEB generator (pass TGZ) - what the project does, honest but incomplete.
+- AppImage parallel: the same RAYLIB_SHARED=ON flag, different answer. An AppImage bundles the .so in the box (above the excludelist); the by-hand appimagetool recipe is the mistake because it never scans DT_NEEDED, so a missing lib is silent at build and loud at runtime. linuxdeploy is the scanning tool on that side. The DEB's dpkg-shlibdeps is the scanning tool on this side; it just needs the library to be a known package.
+- RPM contrast: find-requires needs no package database. It reads DT_NEEDED and emits the SONAME as a capability (libraylib.so.550()(64bit)) directly. The RPM builds fine; the failure moves to install time when no repo provides the capability. The DEB side needs the extra SONAME-to-package hop, and that hop is where a source-built library breaks.
+
+--
 ## After Install: Resolved
 
 ```text
@@ -832,61 +906,6 @@ Control file inspection:
 
 --
 
-## DEB: Dependencies
-
-* **`dpkg-shlibdeps`**: scan ELF in staging
-* **`*.shlibs`**: SONAME → package + version
-* **`symbols`**: per-symbol constraints (optional)
-* **Output**: `DT_NEEDED` → `Depends: ${shlibs:Depends}`
-
-Note:
-- `debian/control`: `Depends: ${shlibs:Depends}` (variable, not manual)
-- Build: `dh_shlibdeps` (debhelper) → `dpkg-shlibdeps`
-- Scan ELF in staging → per `DT_NEEDED`: lookup `*.shlibs` in `/var/lib/dpkg/info/` → (package, version)
-- Duality as RPM: `DT_NEEDED` seen / `dlopen()` invisible
-- `shlibs`: 1 line per SONAME, e.g. `libOpenGL.so.0 libgl1 (>= 1.3.2)`
-- `symbols`: per-symbol constraints → exact ABI tracking
-- In the wild: Wezterm → `dpkg-shlibdeps -O -e debian/usr/bin/*` in target container
-- Live demo (4 steps): `packaging/packator.sh debian builder packaging/demo/demo-deb.sh --deb dist/ocio_0.1.0_amd64.deb --bin build-debian-static/bin/ocio --bin-shared build-debian-shared/bin/ocio`
-- Failure-mode difference vs RPM: here the library must be a known package (with a readable shlibs file) or the build fails loudly. In RPM, find-requires emits the SONAME as a capability with no package database needed.
-
---
-
-## DEB: Shared Raylib
-
-* **`RAYLIB_SHARED=ON`**: `ocio` links `libraylib.so.550` (built from source)
-* **The question**: where does the library live? A DEB needs a `libraylib550` *package*, not a bundled `.so`
-* **The lookup**: `dpkg-shlibdeps` maps each SONAME to a package via `*.shlibs`
-
-```text
-$ readelf -d build-debian-shared/_deps/raylib-build/raylib/libraylib.so.550 | grep SONAME
- 0x000000000000000e (SONAME) Library soname: [libraylib.so.550]
-```
-<!-- .element: class="fragment" -->
-
-```text
-$ cat /var/lib/dpkg/info/libc6:amd64.shlibs
-libc 6 libc6 (>= 2.36)
-libm 6 libc6 (>= 2.36)
-```
-<!-- .element: class="fragment" -->
-
-* **No `libraylib` line** &rarr; `Depends:` uncomputable &rarr; build aborts
-* **Fix**: ship a `libraylib550` package + `Depends:` (no current distro provides it)
-* **Demo**: [PR #27](https://github.com/michelepagot/packathon/pull/27) (intentionally red)
-
-Note:
-Where does the shared library live?
-- RAYLIB_SHARED=ON makes ocio link libraylib.so.550, built from source via FetchContent. A DEB cannot bundle an arbitrary .so and claim a dependency on it: dpkg-shlibdeps must map the SONAME to a (package, version) using the *.shlibs files of installed packages.
-- The shlibs table is the lookup database. libc6:amd64.shlibs maps libc 6 -> libc6 (>= 2.36), libm 6 -> libc6 (>= 2.36). Note the left column is the libtool form (name + ABI version), not the raw SONAME string; dpkg-shlibdeps converts libm.so.6 -> libm 6 before the lookup.
-- libraylib.so.550 -> libraylib 550 has no entry in any installed shlibs file, because raylib was built from source and never installed as a Debian package. No mapping, no Depends: line, build aborts.
-- Verified distro facts: Debian ships no raylib at all (apt-cache showpkg libraylib -> Unable to locate package). openSUSE ships raylib 6.0, SONAME libraylib.so.600, not the 5.5 ocio needs (rpm -q --whatprovides 'libraylib.so.550()(64bit)' -> no package). So neither distro provides the matching SONAME; a libraylib550 package would have to be contributed.
-- Three options (speaker analysis): (1) ship libraylib550 as a sibling package with a Depends: line - the correct fix, out of scope for the talk; (2) SHLIBDEPS_PRIVATE_DIRS - a trap, it converts a loud build failure into a silent runtime failure; (3) skip the DEB generator (pass TGZ) - what the project does, honest but incomplete.
-- AppImage parallel: the same RAYLIB_SHARED=ON flag, different answer. An AppImage bundles the .so in the box (above the excludelist); the by-hand appimagetool recipe is the mistake because it never scans DT_NEEDED, so a missing lib is silent at build and loud at runtime. linuxdeploy is the scanning tool on that side. The DEB's dpkg-shlibdeps is the scanning tool on this side; it just needs the library to be a known package.
-- RPM contrast: find-requires needs no package database. It reads DT_NEEDED and emits the SONAME as a capability (libraylib.so.550()(64bit)) directly. The DEB side needs the extra SONAME-to-package hop, and that hop is where a source-built library breaks.
-
---
-
 ## After Install: Recorded & Guarded
 
 ```text
@@ -919,13 +938,9 @@ Installing is copying files plus keeping an authoritative database:
 
 ## Cooking a DEB
 
-* **Tool**: `dpkg-buildpackage`
-* **Recipe**: `debian/` directory
-* **Workflow**: `dpkg-buildpackage`
-
-<p class="fragment text-info" style="margin-top: 25px;">
-<strong>Two dialects, one format:</strong> low-level skeleton + <code>dpkg-deb</code> vs. canonical debhelper
-</p>
+<div style="text-align: center;">
+<img src="image/deb-pipeline.png" alt="DEB build pipeline" style="max-height: 620px; width: auto;" />
+</div>
 
 Note:
 How native DEBs are built:
@@ -958,6 +973,22 @@ The structure of a Debian recipe:
 
 --
 
+## Delegation
+
+* <!-- .element: class="fragment" --> Binary Contract: Package carries payload only &rarr; dependencies delegated to host OS
+* <!-- .element: class="fragment" --> Transitive Closure: Solver (`libsolv` / APT) traverses repository graph to satisfy requirements
+* <!-- .element: class="fragment" --> Zero Runtime Overhead: Direct `execve()` on system `/usr` &rarr; no daemon, no wrapper
+* <!-- .element: class="fragment" --> System Ledger: Host database registers file ownership, checksums, and dependency guards
+
+Note:
+The delegation architectural paradigm:
+- Philosophy: The developer ships only application machine code and assets; the distribution provides all shared libraries and system drivers.
+- Resolution: zypper/dnf and apt do not guess; their SAT solvers compute the transitive closure across tens of thousands of repository packages.
+- Execution: Unlike AppImage (FUSE mount) or Flatpak (bwrap sandbox), a distro package runs directly via kernel execve() without intermediary runtimes.
+- Bookkeeping: The package manager is an authoritative ledger ensuring file ownership, integrity verification (rpm -V / debsums), and preventing broken dependencies.
+
+--
+
 ## Dialects
 
 | Dimension | RPM | DEB |
@@ -978,22 +1009,6 @@ Two dialects, identical engineering principles:
 - Inspection: rpm -qlp FILE.rpm vs dpkg-deb -c FILE.deb for files; rpm -qp --requires vs dpkg-deb -I for metadata.
 - Integrity: rpm -V PACKAGE audits files against the RPM database; debsums PACKAGE verifies files against stored md5sums.
 - Resolution: Both delegate to a high-level solver (zypper/dnf with libsolv, apt with its dependency engine).
-
---
-
-## Delegation
-
-* <!-- .element: class="fragment" --> Binary Contract: Package carries payload only &rarr; dependencies delegated to host OS
-* <!-- .element: class="fragment" --> Transitive Closure: Solver (`libsolv` / APT) traverses repository graph to satisfy requirements
-* <!-- .element: class="fragment" --> Zero Runtime Overhead: Direct `execve()` on system `/usr` &rarr; no daemon, no wrapper
-* <!-- .element: class="fragment" --> System Ledger: Host database registers file ownership, checksums, and dependency guards
-
-Note:
-The delegation architectural paradigm:
-- Philosophy: The developer ships only application machine code and assets; the distribution provides all shared libraries and system drivers.
-- Resolution: zypper/dnf and apt do not guess; their SAT solvers compute the transitive closure across tens of thousands of repository packages.
-- Execution: Unlike AppImage (FUSE mount) or Flatpak (bwrap sandbox), a distro package runs directly via kernel execve() without intermediary runtimes.
-- Bookkeeping: The package manager is an authoritative ledger ensuring file ownership, integrity verification (rpm -V / debsums), and preventing broken dependencies.
 
 --
 
@@ -1122,10 +1137,6 @@ Low-level mechanics of the AppImage binary:
 
 ## Inside AppImage: Mount Lifecycle
 
-* **Launch**: runtime intercepts `execve()` &rarr; mounts via FUSE to `/tmp/.mount_*`
-* **Entry point**: executes `AppRun` &rarr; configures environment and starts application
-* **Cleanup**: unmounts on process exit &rarr; ephemeral, zero footprint on host
-
 ```text
 $ ocio-x86_64.AppImage --appimage-mount
 /tmp/.mount_ocio-xApLEba
@@ -1178,7 +1189,7 @@ AppDir/
 | `linuxdeploy --appdir AppDir ...` + `appimagetool` | **The tool**: scans `DT_NEEDED`, copies, sets `RUNPATH` |
 <!-- .element: class="fragment" -->
 
-* <!-- .element: class="fragment" --> <strong>In production</strong>: Wezterm uses `linuxdeploy` + zsync ([ci/appimage.sh](https://github.com/wezterm/wezterm/blob/master/ci/appimage.sh))
+<p class="fragment" style="position: absolute; bottom: 0.3em; right: 1.5em; font-size: 0.85em; margin: 0;"><a href="https://github.com/wezterm/wezterm/blob/master/ci/appimage.sh" target="_blank">Wezterm</a></p>
 
 Note:
 An AppImage is a squashed directory tree, the AppDir:
@@ -1197,26 +1208,29 @@ Key message: "self-contained" is not a property of the format. It is a packaging
 ## Cooking an AppImage: Step by Step
 
 ```bash
-# 1. Build
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ```
 
 ```bash
-# 2. Stage the AppDir
-DESTDIR=AppDir cmake --install build --component ocio --prefix /usr
-```
-<!-- .element: class="fragment" -->
-
-```bash
-# 3. Bundle what the host is not expected to have
-linuxdeploy --appdir AppDir --executable AppDir/usr/bin/ocio \
-    --desktop-file ocio.desktop --icon-file ocio.png
+DESTDIR=AppDir cmake \
+       --install build \
+       --component ocio \
+       --prefix /usr
 ```
 <!-- .element: class="fragment" -->
 
 ```bash
-# 4. Squash the AppDir and prepend the runtime
-appimagetool --runtime-file /usr/lib/runtime-x86_64 AppDir ocio-x86_64.AppImage
+linuxdeploy --appdir AppDir \
+            --executable AppDir/usr/bin/ocio \
+            --desktop-file ocio.desktop \
+            --icon-file ocio.png
+```
+<!-- .element: class="fragment" -->
+
+```bash
+appimagetool --runtime-file /usr/lib/runtime-x86_64 \
+             AppDir ocio-x86_64.AppImage
 ```
 <!-- .element: class="fragment" -->
 
@@ -1241,7 +1255,7 @@ All three tools (linuxdeploy, appimagetool, runtime) come pre-installed in the b
 | **GL** | Raylib (static) | `libOpenGL`, `libGLX`, `libGLdispatch` |
 | **Display / Audio** | — | X11 / xcb, `libdrm`, ALSA |
 
-The line is the AppImage **excludelist**: libraries assumed present on every desktop.
+AppImage **excludelist**: libraries assumed present on every desktop.
 <!-- .element: class="fragment" -->
 
 ```text
@@ -1356,24 +1370,20 @@ Introducing Flatpak:
 
 ## Flatpak: Sandboxed Desktop Runtime
 
-<div class="grid-2">
-<div>
+```text
+$ flatpak run org.packathon.ocio
+```
+<!-- .element: class="fragment" -->
 
-### What It Is
-* Universal sandboxed desktop standard
-* Shared, versioned platform runtimes
-* Content-addressed storage via OSTree
+```text
+$ flatpak run --command=sh <app>
+```
+<!-- .element: class="fragment" -->
 
-</div>
-<div>
-
-### Daily CLI
-* **Run**: `flatpak run org.packathon.ocio`
-* **Inspect**: `flatpak run --command=sh <app>`
-* **Override**: `flatpak override --user <flags>`
-
-</div>
-</div>
+```text
+$ flatpak override --user <flags>
+```
+<!-- .element: class="fragment" -->
 
 <p class="fragment text-info" style="margin-top: 30px;">
 <strong>Superpower:</strong> Total decoupling from host OS via unprivileged Bubblewrap sandboxes.
@@ -1383,6 +1393,9 @@ Introducing Flatpak:
 Note:
 Introduce Flatpak via the 4-lens framework:
 1. What it is: An application distribution format built around a clean split between application binaries and shared platform runtimes, backed by OSTree storage.
+   - Universal sandboxed desktop standard
+   - Shared, versioned platform runtimes
+   - Content-addressed storage via OSTree
 2. Superpower: Complete decoupling. The application never sees host /usr. Instead, it runs inside an unprivileged Bubblewrap container with namespaces and seccomp filtering. The concrete result: an upstream fix or feature reaches users the same day, regardless of which distro they run.
 3. Common workflow: Install from configured remotes, run, inspect the interior environment with --command=sh, and dynamically tweak permissions with flatpak override.
 4. The Catch: Because the sandbox is isolated by default, every access to the outside world must be explicitly declared. Access to host resources (files, webcam, notifications) goes through Portals: interactive host-side dialogs that grant fine-grained access only when the user approves.
