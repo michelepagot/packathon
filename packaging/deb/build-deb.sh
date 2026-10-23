@@ -19,6 +19,7 @@
 #                dh_auto_install, dh_shlibdeps, dh_gencontrol, dpkg-buildpackage)
 #   --no-clean   do not remove intermediate staging files on exit
 #   -p, --pause  pause and wait for [Enter] before executing each command
+#                (each command is shown in a "Command to Run" box)
 #   -h, --help   show this help message
 #
 # Must run on the Debian release it targets: dpkg-shlibdeps resolves every
@@ -29,12 +30,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${SCRIPT_DIR}/../lib/pause.sh"
 
 VERSION="0.1.0"
 PACKAGE_NAME="ocio"
 
 MODE="frugal"
-PAUSE_MODE=false
+export PAUSE_MODE=false
 NO_CLEAN=false
 usage() {
     sed -n '/^# Low-level binary packaging/,/^# ==\+/ { /^# ==\+/d; s/^# \{0,1\}//; p; }' "${BASH_SOURCE[0]}"
@@ -83,30 +85,9 @@ ARCH="$(dpkg --print-architecture)"
 DIST_DIR="${DIST_DIR:-${REPO_ROOT}/dist}"
 
 # -----------------------------------------------------------------------------
-# run_cmd: print an explanation, optionally wait for [Enter], then execute.
-#   $1 = command (evaluated)
-#   $2 = explanation (printed before the command)
+# demo_cmd (from lib/pause.sh): print the command box, optionally wait for
+# [Enter] (PAUSE_MODE), then execute. $1 = command, $2 = explanation.
 # -----------------------------------------------------------------------------
-run_cmd() {
-    local cmd="$1"
-    local desc="$2"
-
-    if [ -n "${desc}" ]; then
-        echo "    ${desc}"
-    fi
-
-    if [ "${PAUSE_MODE}" = true ]; then
-        echo -ne "    Press [Enter] to run: ${cmd}  (or Ctrl+C to stop)... "
-        if [ -c /dev/tty ] && [ -r /dev/tty ]; then
-            read -s -r _ < /dev/tty 2>/dev/null || read -s -r _ 2>/dev/null || true
-        else
-            read -s -r _ 2>/dev/null || read -r _ 2>/dev/null || true
-        fi
-        printf "\r\033[2K"
-    fi
-
-    eval "${cmd}"
-}
 
 if [ "${MODE}" = "debhelper" ]; then
     DEB_VERSION="$(dpkg-parsechangelog -l"${SCRIPT_DIR}/debian/changelog" -SVersion)"
@@ -117,7 +98,7 @@ if [ "${MODE}" = "debhelper" ]; then
 
     CLEANUP_DEBIAN_LINK=false
     if [ ! -e "${REPO_ROOT}/debian" ]; then
-        run_cmd "ln -sfn \"${SCRIPT_DIR}/debian\" \"${REPO_ROOT}/debian\"" \
+        demo_cmd "ln -sfn \"${SCRIPT_DIR}/debian\" \"${REPO_ROOT}/debian\"" \
             "Linking packaging/deb/debian into the repository root so dpkg-buildpackage and debhelper find the Debian control directory."
         CLEANUP_DEBIAN_LINK=true
     fi
@@ -133,10 +114,10 @@ if [ "${MODE}" = "debhelper" ]; then
     if [ "${NO_CLEAN}" = true ]; then
         CLEAN_FLAG=""
     fi
-    run_cmd "(cd \"${REPO_ROOT}\" && dpkg-buildpackage -us -uc -b -d ${CLEAN_FLAG})" \
+    demo_cmd "(cd \"${REPO_ROOT}\" && dpkg-buildpackage -us -uc -b -d ${CLEAN_FLAG})" \
         "Invoking dpkg-buildpackage (-us: unsigned source, -uc: unsigned changes, -b: binary-only, -d: skip build-essential check${CLEAN_FLAG:+, -tc: clean source tree after build}). This runs debian/rules via dh (dh_auto_configure, dh_auto_build, dh_auto_install, dh_shlibdeps, dh_gencontrol, dh_md5sums, dh_builddeb)."
 
-    run_cmd "mkdir -p \"${DIST_DIR}\"" \
+    demo_cmd "mkdir -p \"${DIST_DIR}\"" \
         "Ensuring the dist/ output directory exists."
 
     # dpkg-buildpackage places output in parent directory (${REPO_ROOT}/..)
@@ -146,7 +127,7 @@ if [ "${MODE}" = "debhelper" ]; then
     fi
 
     if [ -f "${BUILT_DEB}" ]; then
-        run_cmd "cp -f \"${BUILT_DEB}\" \"${OUTPUT_DEB}\"" \
+        demo_cmd "cp -f \"${BUILT_DEB}\" \"${OUTPUT_DEB}\"" \
             "Copying generated Debian package from build parent directory to ${OUTPUT_DEB}."
         rm -f "${REPO_ROOT}/../${PACKAGE_NAME}_${DEB_VERSION}"* 2>/dev/null || true
     else
@@ -161,24 +142,24 @@ elif [ "${MODE}" = "cmake" ]; then
 
     echo "==> Step 1: Ensuring binary is compiled..."
     if [ ! -f "${BUILD_DIR}/bin/ocio" ]; then
-        run_cmd "cmake -S \"${REPO_ROOT}\" -B \"${BUILD_DIR}\" -DCMAKE_BUILD_TYPE=Release" \
+        demo_cmd "cmake -S \"${REPO_ROOT}\" -B \"${BUILD_DIR}\" -DCMAKE_BUILD_TYPE=Release" \
             "Configuring CMake build (Release) in ${BUILD_DIR}."
-        run_cmd "cmake --build \"${BUILD_DIR}\" --config Release -j\"\$(nproc)\"" \
+        demo_cmd "cmake --build \"${BUILD_DIR}\" --config Release -j\"\$(nproc)\"" \
             "Building the ocio binary with all available cores."
     else
         echo "    Binary already exists at ${BUILD_DIR}/bin/ocio, skipping compile."
     fi
 
     echo "==> Step 2: Packaging DEB archive with CPack..."
-    run_cmd "mkdir -p \"${DIST_DIR}\"" \
+    demo_cmd "mkdir -p \"${DIST_DIR}\"" \
         "Ensuring the dist/ output directory exists."
 
-    run_cmd "(cd \"${BUILD_DIR}\" && cpack -G DEB)" \
+    demo_cmd "(cd \"${BUILD_DIR}\" && cpack -G DEB)" \
         "Running CPack with the DEB generator. CPack stages the ocio component, runs dpkg-shlibdeps for ELF shared library dependencies, generates DEBIAN/control and md5sums, and builds the .deb package."
 
     CPACK_DEB="${BUILD_DIR}/${DEB_FILENAME}"
     if [ -f "${CPACK_DEB}" ]; then
-        run_cmd "cp -f \"${CPACK_DEB}\" \"${OUTPUT_DEB}\"" \
+        demo_cmd "cp -f \"${CPACK_DEB}\" \"${OUTPUT_DEB}\"" \
             "Copying generated CPack package to ${OUTPUT_DEB}."
     else
         echo "Error: expected CPack artifact ${CPACK_DEB} not found." >&2
@@ -216,9 +197,9 @@ else
     # -----------------------------------------------------------------------------
     echo "==> Step 1: Ensuring binary is compiled..."
     if [ ! -f "${BUILD_DIR}/bin/ocio" ]; then
-        run_cmd "cmake -S \"${REPO_ROOT}\" -B \"${BUILD_DIR}\" -DCMAKE_BUILD_TYPE=Release" \
+        demo_cmd "cmake -S \"${REPO_ROOT}\" -B \"${BUILD_DIR}\" -DCMAKE_BUILD_TYPE=Release" \
             "Configuring CMake build (Release) in ${BUILD_DIR}."
-        run_cmd "cmake --build \"${BUILD_DIR}\" --config Release -j\"\$(nproc)\"" \
+        demo_cmd "cmake --build \"${BUILD_DIR}\" --config Release -j\"\$(nproc)\"" \
             "Building the ocio binary with all available cores."
     else
         echo "    Binary already exists at ${BUILD_DIR}/bin/ocio, skipping compile."
@@ -229,9 +210,9 @@ else
     # -----------------------------------------------------------------------------
     echo "==> Step 2: Assembling minimal Debian directory layout in ${STAGE_DIR} (mode: frugal)..."
 
-    run_cmd "mkdir -p \"${STAGE_DIR}\"" \
+    demo_cmd "mkdir -p \"${STAGE_DIR}\"" \
         "Creating the staging root directory."
-    run_cmd "cp -r \"${SCRIPT_DIR}/skeleton/.\" \"${STAGE_DIR}/\" && mkdir -p \"${STAGE_DIR}/usr/bin\" && cp \"${BUILD_DIR}/bin/ocio\" \"${STAGE_DIR}/usr/bin/ocio\" && chmod 755 \"${STAGE_DIR}/usr/bin/ocio\" && cp \"${REPO_ROOT}/packaging/ocio.desktop\" \"${STAGE_DIR}/usr/share/applications/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.png\" \"${STAGE_DIR}/usr/share/icons/hicolor/256x256/apps/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.svg\" \"${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/\" && cp \"${REPO_ROOT}/packaging/org.packathon.ocio.metainfo.xml\" \"${STAGE_DIR}/usr/share/metainfo/\"" \
+    demo_cmd "cp -r \"${SCRIPT_DIR}/skeleton/.\" \"${STAGE_DIR}/\" && mkdir -p \"${STAGE_DIR}/usr/bin\" && cp \"${BUILD_DIR}/bin/ocio\" \"${STAGE_DIR}/usr/bin/ocio\" && chmod 755 \"${STAGE_DIR}/usr/bin/ocio\" && cp \"${REPO_ROOT}/packaging/ocio.desktop\" \"${STAGE_DIR}/usr/share/applications/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.png\" \"${STAGE_DIR}/usr/share/icons/hicolor/256x256/apps/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.svg\" \"${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/\" && cp \"${REPO_ROOT}/packaging/org.packathon.ocio.metainfo.xml\" \"${STAGE_DIR}/usr/share/metainfo/\"" \
         "Copying the Debian directory skeleton and all payload files into the staging tree: the compiled ocio binary (usr/bin/), the XDG .desktop file (usr/share/applications/), the PNG and SVG icons (usr/share/icons/hicolor/), and the AppStream metainfo (usr/share/metainfo/). DEBIAN/ holds package metadata read by dpkg-deb at build time; the usr/ tree is the FHS payload installed onto the target system."
 
     # -----------------------------------------------------------------------------
@@ -239,7 +220,7 @@ else
     # -----------------------------------------------------------------------------
     echo "==> Step 3: Computing shared library dependencies with dpkg-shlibdeps..."
 
-    run_cmd "cp \"${STAGE_DIR}/DEBIAN/control\" \"${WORK_DIR}/debian/control\" && SHLIBS_DEPENDS=\$(cd \"${WORK_DIR}\" && dpkg-shlibdeps -O \"debian/${PACKAGE_NAME}/usr/bin/ocio\" | sed -n 's/^shlibs:Depends=//p')" \
+    demo_cmd "cp \"${STAGE_DIR}/DEBIAN/control\" \"${WORK_DIR}/debian/control\" && SHLIBS_DEPENDS=\$(cd \"${WORK_DIR}\" && dpkg-shlibdeps -O \"debian/${PACKAGE_NAME}/usr/bin/ocio\" | sed -n 's/^shlibs:Depends=//p')" \
         "Copying the control template to debian/control (where dpkg-shlibdeps expects it), then running dpkg-shlibdeps. It inspects the binary's DT_NEEDED entries, maps each SONAME to the Debian package that owns it (dpkg -S), and reads that package's symbols file to determine the minimum version. The -O flag prints the result as shlibs:Depends=... which we capture into SHLIBS_DEPENDS."
 
     echo "    shlibs:Depends=${SHLIBS_DEPENDS}"
@@ -249,13 +230,13 @@ else
     # -----------------------------------------------------------------------------
     echo "==> Step 4: Generating md5sums and rendering control metadata..."
 
-    run_cmd "INSTALLED_SIZE=\$(du -sk --exclude=DEBIAN \"${STAGE_DIR}\" | cut -f1)" \
+    demo_cmd "INSTALLED_SIZE=\$(du -sk --exclude=DEBIAN \"${STAGE_DIR}\" | cut -f1)" \
         "Calculating the installed size in KiB (excluding DEBIAN/ metadata, which is not installed). This value goes into the Installed-Size field of the control file."
 
-    run_cmd "(cd \"${STAGE_DIR}\" && find usr -type f -print0 | sort -z | xargs -0 md5sum > DEBIAN/md5sums)" \
+    demo_cmd "(cd \"${STAGE_DIR}\" && find usr -type f -print0 | sort -z | xargs -0 md5sum > DEBIAN/md5sums)" \
         "Computing md5 checksums for every file in the payload. This is what debsums checks installed files against (dpkg --verify). dpkg-deb does not compute this; normally dh_md5sums does."
 
-    run_cmd "sed -i -e '/^#/d' -e \"s|\\\${version}|${VERSION}|\" -e \"s|\\\${arch}|${ARCH}|\" -e \"s|\\\${installed:Size}|${INSTALLED_SIZE}|\" -e \"s|\\\${shlibs:Depends}|${SHLIBS_DEPENDS}|\" \"${STAGE_DIR}/DEBIAN/control\"" \
+    demo_cmd "sed -i -e '/^#/d' -e \"s|\\\${version}|${VERSION}|\" -e \"s|\\\${arch}|${ARCH}|\" -e \"s|\\\${installed:Size}|${INSTALLED_SIZE}|\" -e \"s|\\\${shlibs:Depends}|${SHLIBS_DEPENDS}|\" \"${STAGE_DIR}/DEBIAN/control\"" \
         "Rendering the control template in place: strips comment lines, substitutes version, architecture, installed size, and the computed shlibdeps. The result is the final DEBIAN/control file that dpkg-deb will embed in the package."
 
     # -----------------------------------------------------------------------------
@@ -263,10 +244,10 @@ else
     # -----------------------------------------------------------------------------
     echo "==> Step 5: Packaging DEB archive with dpkg-deb..."
 
-    run_cmd "mkdir -p \"${DIST_DIR}\"" \
+    demo_cmd "mkdir -p \"${DIST_DIR}\"" \
         "Ensuring the dist/ output directory exists."
 
-    run_cmd "dpkg-deb --build --root-owner-group \"${STAGE_DIR}\" \"${OUTPUT_DEB}\"" \
+    demo_cmd "dpkg-deb --build --root-owner-group \"${STAGE_DIR}\" \"${OUTPUT_DEB}\"" \
         "Building the .deb archive. dpkg-deb assembles a Unix ar archive with three members: debian-binary (format version), control.tar.* (metadata), and data.tar.* (file payload). --root-owner-group forces root:root ownership without needing root."
 fi
 

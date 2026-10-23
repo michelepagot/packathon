@@ -22,6 +22,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${SCRIPT_DIR}/../lib/pause.sh"
 
 PAUSE_MODE=false
 DRY_RUN=false
@@ -156,60 +157,6 @@ info() {
 
 skip() {
     echo -e "${YELLOW}[SKIP]${RESET} $1"
-}
-
-print_command_box() {
-    local cmd="$1"
-    echo ""
-    echo -e "  ${CYAN}┌──[ Command to Run ]──────────────────────────────────────────────────${RESET}"
-    echo -e "  ${BOLD}${YELLOW}${cmd}${RESET}"
-    echo -e "  ${CYAN}└──────────────────────────────────────────────────────────────────────${RESET}"
-}
-
-pause_prompt() {
-    local prompt_msg="${1:-}"
-    if [ "${PAUSE_MODE}" = true ]; then
-        echo -ne "${prompt_msg}"
-        if [ -c /dev/tty ] && [ -r /dev/tty ]; then
-            read -s -r _ < /dev/tty 2>/dev/null || read -s -r _ 2>/dev/null || true
-        else
-            read -s -r _ 2>/dev/null || read -r _ 2>/dev/null || true
-        fi
-        printf "\r\033[2K"
-    fi
-}
-
-demo_cmd() {
-    local cmd="$1"
-    local desc="${2:-}"
-    local comment="${3:-}"
-
-    if [ -n "${desc}" ]; then
-        substep "${desc}"
-    fi
-
-    echo ""
-    echo -e "  ${CYAN}┌──[ Command to Run ]──────────────────────────────────────────────────${RESET}"
-    echo -e "  ${BOLD}${YELLOW}${cmd}${RESET}"
-
-    if [ "${DRY_RUN}" = true ]; then
-        echo -e "  ${CYAN}└──────────────────────────────────────────────────────────────────────${RESET}"
-        if [ -n "${comment}" ]; then
-            echo -e "${comment}"
-        fi
-        return 0
-    fi
-
-    echo -e "  ${CYAN}├──[ Output ]──────────────────────────────────────────────────────────${RESET}"
-    pause_prompt "  ${BOLD}${GREEN}[PAUSE]${RESET} Press ${BOLD}[Enter]${RESET} to execute (or Ctrl+C to stop)... "
-    eval "${cmd}" || true
-    echo -e "  ${CYAN}└──────────────────────────────────────────────────────────────────────${RESET}"
-
-    if [ -n "${comment}" ]; then
-        echo -e "${comment}"
-    fi
-
-    pause_prompt "  ${BOLD}${GREEN}[PAUSE]${RESET} Press ${BOLD}[Enter]${RESET} to continue (or Ctrl+C to stop)... "
 }
 
 # -----------------------------------------------------------------------------

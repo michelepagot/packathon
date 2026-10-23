@@ -53,6 +53,7 @@ jobs:
       deb: ${{ steps.filter.outputs.deb }}
       appimage: ${{ steps.filter.outputs.appimage }}
       flatpak: ${{ steps.filter.outputs.flatpak }}
+      scripts: ${{ steps.filter.outputs.scripts }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -88,6 +89,13 @@ jobs:
             # Flatpak manifest: changes affect the Flatpak bundle build
             flatpak:
               - 'packaging/flatpak/**'
+            # Bash scripts, the shared pause lib, and the lint Makefile:
+            # changes require the `make lint-script` checks (bash -n, shellcheck,
+            # --help, --dry-run). The Makefile is included because it drives the
+            # lint targets and its script lists must stay in sync with the scripts.
+            scripts:
+              - 'packaging/**/*.sh'
+              - 'packaging/Makefile'
 
       - name: Force all filters true for non-PR events
         if: github.event_name != 'pull_request'
@@ -101,6 +109,37 @@ jobs:
           echo "deb=true" >> "$GITHUB_OUTPUT"
           echo "appimage=true" >> "$GITHUB_OUTPUT"
           echo "flatpak=true" >> "$GITHUB_OUTPUT"
+          echo "scripts=true" >> "$GITHUB_OUTPUT"
+
+  # ===========================================================================
+  # Bash Script Lint (make lint-script)
+  # ===========================================================================
+  # Lints every packaging bash script: bash -n syntax check, shellcheck,
+  # --help, and --dry-run. Triggered only when a bash script, the shared
+  # pause lib, or the lint Makefile changes.
+  # ===========================================================================
+  lint-scripts:
+    name: Bash Script Lint (make lint-script)
+    runs-on: ubuntu-latest
+    # Job-level gate: skip on PRs that touch no bash script / lib / Makefile.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.filter.outputs.scripts == 'true'
+    needs: filter
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends shellcheck
+          fi
+
+      - name: Run make lint-script
+        working-directory: packaging
+        run: make lint-script
 
   # ===========================================================================
   # openSUSE: Builder Image, All openSUSE Build Modes & RPM Verification

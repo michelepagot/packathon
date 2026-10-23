@@ -20,6 +20,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${SCRIPT_DIR}/../lib/pause.sh"
 
 VERSION="0.1.0"
 NAME="ocio"
@@ -28,7 +29,7 @@ RAYLIB_VERSION="5.5"
 RPM_TOPDIR="${RPM_TOPDIR:-/tmp/rpmbuild}"
 
 RAYLIB_TARBALL=""
-PAUSE_MODE=false
+export PAUSE_MODE=false
 BUILD_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -58,19 +59,6 @@ if [ ! -f "${RAYLIB_TARBALL}" ]; then
     echo "Error: raylib source tarball not found at '${RAYLIB_TARBALL}'" >&2
     exit 1
 fi
-
-pause_prompt() {
-    local prompt_msg="${1:-}"
-    if [ "${PAUSE_MODE}" = true ]; then
-        echo -ne "${prompt_msg}"
-        if [ -c /dev/tty ] && [ -r /dev/tty ]; then
-            read -s -r _ < /dev/tty 2>/dev/null || read -s -r _ 2>/dev/null || true
-        else
-            read -s -r _ 2>/dev/null || read -r _ 2>/dev/null || true
-        fi
-        printf "\r\033[2K"
-    fi
-}
 
 pause_prompt "==> Setting up clean RPM build tree in ${RPM_TOPDIR}... Press [Enter] to continue (or Ctrl+C to stop)... "
 echo "==> Setting up clean RPM build tree in ${RPM_TOPDIR}..."

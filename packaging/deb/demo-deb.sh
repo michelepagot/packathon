@@ -19,6 +19,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../lib/pause.sh"
 
 PAUSE_MODE=false
 DRY_RUN=false
@@ -104,37 +105,46 @@ while [ $# -gt 0 ]; do
 done
 
 # All targets must be provided explicitly: no auto-discovery.
-if [ -z "${DEB_CANDIDATE}" ]; then
+# In dry-run mode the candidates are optional: the demo prints the commands it
+# would run without touching the filesystem, so missing files are tolerated.
+if [ -z "${DEB_CANDIDATE}" ] && [ "${DRY_RUN}" = false ]; then
     echo "Error: --deb is required. Build a package first (packaging/deb/build-deb.sh) or pass an existing file." >&2
     exit 1
 fi
 
-if [ -z "${BINARY_CANDIDATE}" ]; then
+if [ -z "${BINARY_CANDIDATE}" ] && [ "${DRY_RUN}" = false ]; then
     echo "Error: --bin is required. Pass the path to a compiled ocio binary (e.g. build-debian-static/bin/ocio)." >&2
     exit 1
 fi
 
-if [ -z "${BINARY_SHARED_CANDIDATE}" ]; then
+if [ -z "${BINARY_SHARED_CANDIDATE}" ] && [ "${DRY_RUN}" = false ]; then
     echo "Error: --bin-shared is required. Pass a shared-raylib ocio binary (e.g. build-debian-shared/bin/ocio)." >&2
     exit 1
 fi
 
-DEB_CANDIDATE="$(cd "$(dirname "${DEB_CANDIDATE}")" && pwd)/$(basename "${DEB_CANDIDATE}")"
-if [ ! -f "${DEB_CANDIDATE}" ]; then
-    echo "Error: DEB file does not exist: '${DEB_CANDIDATE}'" >&2
-    exit 1
-fi
+if [ "${DRY_RUN}" = true ]; then
+    # Dry-run: use the provided paths as-is (no existence check, no canonicalization).
+    : "${DEB_CANDIDATE:=./dist/ocio_0.1.0_amd64.deb}"
+    : "${BINARY_CANDIDATE:=./build-debian-static/bin/ocio}"
+    : "${BINARY_SHARED_CANDIDATE:=./build-debian-shared/bin/ocio}"
+else
+    DEB_CANDIDATE="$(cd "$(dirname "${DEB_CANDIDATE}")" && pwd)/$(basename "${DEB_CANDIDATE}")"
+    if [ ! -f "${DEB_CANDIDATE}" ]; then
+        echo "Error: DEB file does not exist: '${DEB_CANDIDATE}'" >&2
+        exit 1
+    fi
 
-BINARY_CANDIDATE="$(cd "$(dirname "${BINARY_CANDIDATE}")" && pwd)/$(basename "${BINARY_CANDIDATE}")"
-if [ ! -f "${BINARY_CANDIDATE}" ]; then
-    echo "Error: --bin file does not exist: '${BINARY_CANDIDATE}'" >&2
-    exit 1
-fi
+    BINARY_CANDIDATE="$(cd "$(dirname "${BINARY_CANDIDATE}")" && pwd)/$(basename "${BINARY_CANDIDATE}")"
+    if [ ! -f "${BINARY_CANDIDATE}" ]; then
+        echo "Error: --bin file does not exist: '${BINARY_CANDIDATE}'" >&2
+        exit 1
+    fi
 
-BINARY_SHARED_CANDIDATE="$(cd "$(dirname "${BINARY_SHARED_CANDIDATE}")" && pwd)/$(basename "${BINARY_SHARED_CANDIDATE}")"
-if [ ! -f "${BINARY_SHARED_CANDIDATE}" ]; then
-    echo "Error: --bin-shared file does not exist: '${BINARY_SHARED_CANDIDATE}'" >&2
-    exit 1
+    BINARY_SHARED_CANDIDATE="$(cd "$(dirname "${BINARY_SHARED_CANDIDATE}")" && pwd)/$(basename "${BINARY_SHARED_CANDIDATE}")"
+    if [ ! -f "${BINARY_SHARED_CANDIDATE}" ]; then
+        echo "Error: --bin-shared file does not exist: '${BINARY_SHARED_CANDIDATE}'" >&2
+        exit 1
+    fi
 fi
 
 # Formatting helpers
@@ -175,60 +185,6 @@ info() {
 
 skip() {
     echo -e "${YELLOW}[SKIP]${RESET} $1"
-}
-
-print_command_box() {
-    local cmd="$1"
-    echo ""
-    echo -e "  ${CYAN}┌──[ Command to Run ]──────────────────────────────────────────────────${RESET}"
-    echo -e "  ${BOLD}${YELLOW}${cmd}${RESET}"
-    echo -e "  ${CYAN}└──────────────────────────────────────────────────────────────────────${RESET}"
-}
-
-pause_prompt() {
-    local prompt_msg="${1:-}"
-    if [ "${PAUSE_MODE}" = true ]; then
-        echo -ne "${prompt_msg}"
-        if [ -c /dev/tty ] && [ -r /dev/tty ]; then
-            read -s -r _ < /dev/tty 2>/dev/null || read -s -r _ 2>/dev/null || true
-        else
-            read -s -r _ 2>/dev/null || read -r _ 2>/dev/null || true
-        fi
-        printf "\r\033[2K"
-    fi
-}
-
-demo_cmd() {
-    local cmd="$1"
-    local desc="${2:-}"
-    local comment="${3:-}"
-
-    if [ -n "${desc}" ]; then
-        substep "${desc}"
-    fi
-
-    echo ""
-    echo -e "  ${CYAN}┌──[ Command to Run ]──────────────────────────────────────────────────${RESET}"
-    echo -e "  ${BOLD}${YELLOW}${cmd}${RESET}"
-
-    if [ "${DRY_RUN}" = true ]; then
-        echo -e "  ${CYAN}└──────────────────────────────────────────────────────────────────────${RESET}"
-        if [ -n "${comment}" ]; then
-            echo -e "${comment}"
-        fi
-        return 0
-    fi
-
-    echo -e "  ${CYAN}├──[ Output ]──────────────────────────────────────────────────────────${RESET}"
-    pause_prompt "  ${BOLD}${GREEN}[PAUSE]${RESET} Press ${BOLD}[Enter]${RESET} to execute (or Ctrl+C to stop)... "
-    eval "${cmd}" || true
-    echo -e "  ${CYAN}└──────────────────────────────────────────────────────────────────────${RESET}"
-
-    if [ -n "${comment}" ]; then
-        echo -e "${comment}"
-    fi
-
-    pause_prompt "  ${BOLD}${GREEN}[PAUSE]${RESET} Press ${BOLD}[Enter]${RESET} to continue (or Ctrl+C to stop)... "
 }
 
 # -----------------------------------------------------------------------------
