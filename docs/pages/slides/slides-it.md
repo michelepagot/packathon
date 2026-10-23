@@ -1387,24 +1387,20 @@ Introduciamo Flatpak:
 
 ## Flatpak: Runtime Desktop in Sandbox
 
-<div class="grid-2">
-<div>
+```text
+$ flatpak run org.packathon.ocio
+```
+<!-- .element: class="fragment" -->
 
-### Cos'è
-* Standard desktop universale in sandbox
-* Runtime di piattaforma condivisi e versionati
-* Storage indirizzato per contenuto via OSTree
+```text
+$ flatpak run --command=sh <app>
+```
+<!-- .element: class="fragment" -->
 
-</div>
-<div>
-
-### CLI Quotidiana
-* **Esegui**: `flatpak run org.packathon.ocio`
-* **Ispeziona**: `flatpak run --command=sh <app>`
-* **Modifica**: `flatpak override --user <flags>`
-
-</div>
-</div>
+```text
+$ flatpak override --user <flags>
+```
+<!-- .element: class="fragment" -->
 
 <p class="fragment text-info" style="margin-top: 30px;">
 <strong>Superpotere:</strong> Totale disaccoppiamento dall'host tramite sandbox Bubblewrap non privilegiate.
@@ -1414,6 +1410,9 @@ Introduciamo Flatpak:
 Note:
 Introduciamo Flatpak con le 4 lenti:
 1. Cos'è: Un formato di distribuzione basato sulla netta separazione tra binari applicativi e runtime di piattaforma condivisi, gestito tramite storage OSTree.
+   - Standard desktop universale in sandbox
+   - Runtime di piattaforma condivisi e versionati
+   - Storage indirizzato per contenuto via OSTree
 2. Superpotere: Disaccoppiamento radicale. L'applicazione non vede /usr dell'host, ma un ambiente isolato gestito da Bubblewrap con namespace del kernel e filtri seccomp. Il risultato concreto: un fix o una novita' upstream arriva agli utenti lo stesso giorno, indipendentemente dalla distro che eseguono.
 3. Flusso comune: Installa da repository remoti, esegui, ispeziona l'ambiente interno con --command=sh e gestisci i permessi con flatpak override.
 4. Il limite: Poiché la sandbox è sigillata per impostazione predefinita, qualsiasi comunicazione con l'esterno deve essere dichiarata esplicitamente. L'accesso a risorse host (file, webcam, notifiche) passa dai Portali: dialoghi interattivi lato host che concedono accesso fine-grained solo quando l'utente approva.

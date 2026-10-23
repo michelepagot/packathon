@@ -1370,24 +1370,20 @@ Introducing Flatpak:
 
 ## Flatpak: Sandboxed Desktop Runtime
 
-<div class="grid-2">
-<div>
+```text
+$ flatpak run org.packathon.ocio
+```
+<!-- .element: class="fragment" -->
 
-### What It Is
-* Universal sandboxed desktop standard
-* Shared, versioned platform runtimes
-* Content-addressed storage via OSTree
+```text
+$ flatpak run --command=sh <app>
+```
+<!-- .element: class="fragment" -->
 
-</div>
-<div>
-
-### Daily CLI
-* **Run**: `flatpak run org.packathon.ocio`
-* **Inspect**: `flatpak run --command=sh <app>`
-* **Override**: `flatpak override --user <flags>`
-
-</div>
-</div>
+```text
+$ flatpak override --user <flags>
+```
+<!-- .element: class="fragment" -->
 
 <p class="fragment text-info" style="margin-top: 30px;">
 <strong>Superpower:</strong> Total decoupling from host OS via unprivileged Bubblewrap sandboxes.
@@ -1397,6 +1393,9 @@ Introducing Flatpak:
 Note:
 Introduce Flatpak via the 4-lens framework:
 1. What it is: An application distribution format built around a clean split between application binaries and shared platform runtimes, backed by OSTree storage.
+   - Universal sandboxed desktop standard
+   - Shared, versioned platform runtimes
+   - Content-addressed storage via OSTree
 2. Superpower: Complete decoupling. The application never sees host /usr. Instead, it runs inside an unprivileged Bubblewrap container with namespaces and seccomp filtering. The concrete result: an upstream fix or feature reaches users the same day, regardless of which distro they run.
 3. Common workflow: Install from configured remotes, run, inspect the interior environment with --command=sh, and dynamically tweak permissions with flatpak override.
 4. The Catch: Because the sandbox is isolated by default, every access to the outside world must be explicitly declared. Access to host resources (files, webcam, notifications) goes through Portals: interactive host-side dialogs that grant fine-grained access only when the user approves.
