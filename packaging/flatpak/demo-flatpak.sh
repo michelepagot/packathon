@@ -20,20 +20,21 @@ echo " Bundle: $(basename "${BUNDLE_FILE}")"
 echo "======================================================================="
 
 echo "-----------------------------------------------------------------------"
-echo "[1] Inspecting Flatpak Bundle Metadata..."
+echo "[1] Installing Flatpak bundle into user scope..."
 echo "-----------------------------------------------------------------------"
-flatpak info --bundle "${BUNDLE_FILE}" || true
+flatpak install --user -y --noninteractive --no-deps --no-related "${BUNDLE_FILE}"
 echo ""
 
 echo "-----------------------------------------------------------------------"
-echo "[2] Installing Flatpak bundle into user scope..."
+echo "[2] Inspecting Installed Application Metadata..."
 echo "-----------------------------------------------------------------------"
-flatpak install --user -y --noninteractive "${BUNDLE_FILE}"
+flatpak info org.packathon.ocio
 echo ""
 
 echo "-----------------------------------------------------------------------"
 echo "[3] Interactive Sandbox Dissection (/app vs /usr)..."
 echo "-----------------------------------------------------------------------"
+
 echo "--> Inside the sandbox, dynamic libraries resolve against Freedesktop runtime:"
 flatpak run --command=ldd org.packathon.ocio /app/bin/ocio || true
 echo ""
