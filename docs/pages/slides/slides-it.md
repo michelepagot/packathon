@@ -601,7 +601,7 @@ La trappola per chi scrive lo spec:
 - Ma quando l'autore scrive ocio.spec per le distribuzioni ufficiali usando macro come %cmake, la toolchain di distro inietta flag di hardening, in particolare -Wl,--as-needed.
 - Poiche' Raylib risolve i punti di ingresso OpenGL dinamicamente tramite puntatori e dlopen(), GNU ld con --as-needed considera il link non necessario e rimuove libOpenGL.so.0 e libGLX.so.0 da DT_NEEDED.
 - find-requires scansiona unicamente DT_NEEDED: non trova dipendenze grafiche ed emette solo libc e libm.
-- L'RPM compila senza errori, ma Zypper installa solo 1 pacchetto (904 KiB) invece di 36 (53 MiB). Il programma si avvia, ma va in crash all'apertura della finestra!
+- L'RPM compila senza errori, ma Zypper installa solo 1 pacchetto (904 KiB, senza dipendenze grafiche) invece di 36 (53 MiB). Il programma si avvia, ma va in crash all'apertura della finestra!
 - La soluzione: l'autore deve colmare manualmente il punto cieco di dlopen() dichiarando le capability virtuali in ocio.spec tramite Requires: (il blocco di codice sopra).
 In the wild: la trappola e' specifica del C con librerie dinamiche. I binari Go (CGO off) e Rust (statici) non hanno uno stack GL in DT_NEEDED, quindi il punto cieco di find-requires / dpkg-shlibdeps non si presenta. E' per questo che OpenTofu e Wezterm non si scontrano con --as-needed.
 
@@ -629,7 +629,7 @@ Note:
 Confronto diretto con il crash iniziale:
 - Ogni libreria prima mancante (libOpenGL.so.0, libGLX.so.0) e' ora risolta con un percorso assoluto in /lib64.
 - Notate la risoluzione transitiva: il loader ha risolto anche le dipendenze secondarie tirate dentro da libglvnd (libGLdispatch, libX11, libxcb).
-- Il costo della delega: per installare il nostro pacchetto da 486 KB, il SAT solver (libsolv) ha selezionato 36 pacchetti dal repository per un totale di 52.6 MiB di download.
+- Il costo della delega: per installare il nostro pacchetto da 486 KB (904 KiB su disco), il SAT solver (libsolv) ha selezionato 36 pacchetti dal repository per un totale di 52.6 MiB di download.
 - Il contratto userspace e' ora completamente soddisfatto dalla distribuzione.
 
 Matrice ldd cross-distro (escludendo libraylib, statica in tutti e 4 i flavor funzionanti):
@@ -685,6 +685,22 @@ Installare significa copiare file e mantenere un database autorevole:
 - Proprieta' (rpm -qf): ogni singolo file sul filesystem ha un pacchetto proprietario certo e tracciabile.
 - Verifica integrita' (rpm -V): verifica i file rispetto ai digest sha256 memorizzati. Se un file viene manomesso, rpm -V lo segnala all'istante.
 - Protezione dipendenze (rpm -e --test): il sistema impedisce la rimozione accidentale di librerie necessarie ad altri pacchetti installati.
+
+--
+
+## Chi conosce il buildsystem?
+
+<div class="center-card">
+  <img src="image/atuin_bug_report.png" alt="Segnalazione del bug di atuin su OBS" style="max-height: 260px; width: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+  <p style="font-size: 0.5em; margin: 4px 0;"><a href="https://build.opensuse.org/request/show/1376894#comment-2306874" target="_blank">build.opensuse.org/request/show/1376894#comment-2306874</a></p>
+</div>
+<!-- .element: class="fragment" -->
+
+<div class="center-card">
+  <img src="image/atuin_fix.png" alt="Fix di atuin.spec su OBS" style="max-height: 150px; width: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+  <p style="font-size: 0.5em; margin: 4px 0;"><a href="https://build.opensuse.org/requests/1380854/changes" target="_blank">build.opensuse.org/requests/1380854/changes</a></p>
+</div>
+<!-- .element: class="fragment" -->
 
 ---
 
@@ -759,8 +775,9 @@ data.tar.xz
 <!-- .element: class="fragment" -->
 
 ```text
-$ dpkg-deb -I ocio_0.1.0_amd64.deb | grep Depends
- Depends: libc6 (>= 2.17), libgl1, libx11-6
+$ dpkg-deb -I ocio_0.1.0_amd64.deb | grep -E 'Depends|Recommends'
+ Depends: libc6 (>= 2.35), libglx0, libx11-6
+ Recommends: libxcursor1, libxi6, libxinerama1, libxrandr2
 ```
 <!-- .element: class="fragment" -->
 
@@ -769,9 +786,9 @@ Anatomia di un file .deb:
 - Non usa alcun formato contenitore proprietario: e' un archivio standard Unix ar (lo stesso formato usato per le librerie statiche .a).
 - Contiene esattamente tre membri:
   1. debian-binary: stringa di testo con la versione del formato ("2.0\n").
-  2. control.tar: archivio compresso con i metadati del pacchetto (file control, md5sums, scriptlet postinst/prerm).
+  2. control.tar: archivio compresso con i metadati del pacchetto (file control, md5sums, scriptlet di manutenzione).
   3. data.tar: archivio compresso contenente i file del payload effettivo da scompattare sul filesystem.
-- dpkg-deb -I: ispeziona i metadati di controllo. Depends: libc6, libgl1, libx11-6 e' generato automaticamente da dpkg-shlibdeps.
+- dpkg-deb -I: ispeziona i metadati di controllo. La riga Depends e' divisa in due: libc6 (>= 2.35) e' calcolata automaticamente da dpkg-shlibdeps dal DT_NEEDED del binario (libc, libm), mentre libglx0 e libx11-6 sono dichiarate a mano perche' GLFW le carica con dlopen() dopo main(), quindi sono invisibili allo scanner. Recommends elenca le librerie opzionali di input/geometria X11 senza le quali GLFW degrada.
 
 --
 
@@ -790,7 +807,7 @@ drwxr-xr-x root/root         0 ./usr/bin/
 ```
 
 Note:
-dpkg-deb -c elenca il contenuto di data.tar senza estrarlo:
+dpkg-deb -c elenca il contenuto di data.tar senza estrarlo (timestamp omessi per leggibilita'):
 - /usr/bin/ocio: il binario, posizionato in una directory gia' presente nel $PATH di sistema.
 - .desktop + icone: desktop entry e icone per consentire al desktop environment di mostrarlo nei menu.
 - metainfo XML: metadati AppStream affinche' i software center grafici (GNOME Software, Discover) presentino descrizioni, categorie e screenshot.
@@ -805,29 +822,29 @@ $ dpkg-deb -I ocio_0.1.0_amd64.deb
  Package: ocio
  Version: 0.1.0
  Architecture: amd64
- Maintainer: Michele Pagot <michele@pagot.dev>
- Installed-Size: 1240
- Depends: libc6 (>= 2.17), libgl1, libx11-6
- Section: utils
+ Maintainer: Packathon Maintainers <maintainers@packathon.org>
+ Installed-Size: 1264
+ Depends: libc6 (>= 2.35), libglx0, libx11-6
+ Recommends: libxcursor1, libxi6, libxinerama1, libxrandr2
+ Section: graphics
  Priority: optional
- Description: Eye-tracking demo application
-  A minimal C99 application that tracks the mouse cursor
-  using OpenGL hardware acceleration.
+ Description: Raylib interactive eye-tracking educational demo
 ```
 <!-- .element: class="fragment" -->
 
 ```text
 $ dpkg-deb -e ocio_0.1.0_amd64.deb ./deb-control/
-$ cat ./deb-control/control | grep Depends
- Depends: libc6 (>= 2.17), libgl1, libx11-6
+$ cat ./deb-control/control | grep -E 'Depends|Recommends'
+ Depends: libc6 (>= 2.35), libglx0, libx11-6
+ Recommends: libxcursor1, libxi6, libxinerama1, libxrandr2
 ```
 <!-- .element: class="fragment" -->
 
 Note:
 Ispezione del file control:
-- Guardate i Depends: libc6, libgl1, libx11-6. Questo e' l'equivalente a livello di pacchetto delle capability string libOpenGL.so.0()(64bit) dell'RPM.
-- La differenza di granularita': RPM dichiara capability a livello SONAME (libOpenGL.so.0()(64bit)); DEB dichiara nomi di pacchetto (libgl1). Il risolutore mappa i nomi di pacchetto alle librerie effettive al momento della risoluzione.
-- Nessuno ha scritto queste righe a mano: dpkg-shlibdeps scansiona i binari ELF nella directory di staging, consulta il file shlibs di ogni libreria e compila ${shlibs:Depends} nel file control.
+- Guardate i Depends: libc6 (>= 2.35), libglx0, libx11-6. Questo e' l'equivalente a livello di pacchetto delle capability string libOpenGL.so.0()(64bit) dell'RPM.
+- La differenza di granularita': RPM dichiara capability a livello SONAME (libOpenGL.so.0()(64bit)); DEB dichiara nomi di pacchetto (libglx0). Il risolutore mappa i nomi di pacchetto alle librerie effettive al momento della risoluzione.
+- La riga Depends e' divisa in due: libc6 (>= 2.35) e' calcolata automaticamente da dpkg-shlibdeps dal DT_NEEDED del binario (libc, libm), mentre libglx0 e libx11-6 sono dichiarate a mano perche' GLFW le carica con dlopen() dopo main(), quindi sono invisibili allo scanner.
 - dpkg-deb -e estrae il membro control.tar in una directory, esponendo il file control, md5sums e eventuali scriptlet di manutenzione (postinst, prerm, postrm, prerm).
 
 --
@@ -848,6 +865,7 @@ Note:
 - `symbols`: vincoli per simbolo → tracciamento ABI esatto
 - In the wild: Wezterm → `dpkg-shlibdeps -O -e debian/usr/bin/*` in container target
 - Demo live (4 passi): `packaging/packator.sh debian builder packaging/demo/demo-deb.sh --deb dist/ocio_0.1.0_amd64.deb --bin build-debian-static/bin/ocio --bin-shared build-debian-shared/bin/ocio`
+- Differenza di modalita' di fallimento rispetto a RPM: qui la libreria deve essere un pacchetto noto al sistema di packaging (con un file shlibs leggibile), altrimenti la build fallisce rumorosamente. In RPM, find-requires emette il SONAME come capability senza bisogno di un database di pacchetti.
 
 --
 
@@ -889,8 +907,8 @@ Dove vive la libreria condivisa?
 ## Dopo l'Installazione: Registrato e Protetto
 
 ```text
-$ dpkg -S /usr/lib/x86_64-linux-gnu/libOpenGL.so.0
-libgl1: /usr/lib/x86_64-linux-gnu/libOpenGL.so.0
+$ dpkg -S /usr/lib/x86_64-linux-gnu/libGLX.so.0
+libglx0:amd64: /usr/lib/x86_64-linux-gnu/libGLX.so.0
 ```
 
 ```text
@@ -901,17 +919,15 @@ $ debsums ocio
 <!-- .element: class="fragment" -->
 
 ```text
-$ apt-get remove --dry-run libgl1
+$ apt-get remove --dry-run libglx0
 The following packages will be REMOVED:
-  libgl1
-The following packages will also be REMOVED:
-  ocio
+  libglx0 ocio
 ```
 <!-- .element: class="fragment" -->
 
 Note:
 Installare significa copiare file e mantenere un database autorevole:
-- Proprieta' (dpkg -S): ogni file sul filesystem ha un pacchetto proprietario certo, l'equivalente Debian di rpm -qf.
+- Proprieta' (dpkg -S): ogni file sul filesystem ha un pacchetto proprietario certo, l'equivalente Debian di rpm -qf. libGLX.so.0 e' posseduto da libglx0 (il dispatcher libglvnd); libOpenGL.so.0 e' posseduto dal pacchetto separato libopengl0.
 - Verifica integrita' (debsums): verifica i file rispetto ai digest MD5 memorizzati nel file md5sums del control. Se un file viene manomesso, debsums segnala la discrepanza.
 - Protezione dipendenze (apt-get remove --dry-run): il risolutore impedisce la rimozione accidentale di librerie necessarie ad altri pacchetti installati, allo stesso modo di rpm -e --test.
 - Il database dpkg vive in /var/lib/dpkg/status; apt aggiunge un indice di repository e un risolutore piu' sofisticato (basato sugli stessi principi SAT di libsolv) sopra.
@@ -967,7 +983,7 @@ La struttura della ricetta Debian:
 | **Tool** | `rpm` | `dpkg` |
 | **Manager** | `zypper` | `apt` |
 | **Gen deps** | `find-requires` | `dpkg-shlibdeps` |
-| **Res deps** | capability SONAME | lookup `*.shlibs` |
+| **Format deps** | capability SONAME | nome pacchetto via `*.shlibs` |
 | **Ispezione** | `rpm -qlp` | `dpkg-deb -c` |
 | **Audit** | `rpm -V` | `debsums` |
 <!-- .element: style="font-size: 0.76em;" -->
@@ -975,7 +991,7 @@ La struttura della ricetta Debian:
 Note:
 Due dialetti, stesso principio ingegneristico:
 - Contenitori: RPM usa un payload CPIO compresso (zstd o gzip); DEB usa un classico archivio Unix ar contenente control.tar (metadati) e data.tar (payload).
-- Generazione dipendenze: find-requires scansiona le voci ELF DT_NEEDED ed emette ciascun SONAME direttamente come capability (es. `libraylib.so.550()(64bit)`) senza consultare un database di pacchetti; dpkg-shlibdeps deve mappare ciascun SONAME a (pacchetto, versione) tramite i file `*.shlibs` dei pacchetti installati, quindi ha bisogno di un database di pacchetti. Una libreria compilata da sorgente senza voce shlibs fa fallire il lato DEB ma non il lato RPM.
+- Generazione dipendenze: find-requires scansiona le voci ELF DT_NEEDED ed emette ciascun SONAME direttamente come capability (es. `libraylib.so.550()(64bit)`) senza consultare un database di pacchetti; dpkg-shlibdeps deve mappare ciascun SONAME a (pacchetto, versione) tramite i file `*.shlibs` dei pacchetti installati, quindi ha bisogno di un database di pacchetti. Una libreria compilata da sorgente senza voce shlibs fa fallire la build DEB, mentre l'RPM viene comunque costruito ma richiede `libraylib.so.550()(64bit)`, che nessun repository fornisce: il fallimento si sposta dal build time all'install time.
 - Ispezione: rpm -qlp FILE.rpm vs dpkg-deb -c FILE.deb per i file; rpm -qp --requires vs dpkg-deb -I per i metadati.
 - Integrita': rpm -V PACKAGE controlla i digest salvati nel database RPM; debsums PACKAGE verifica i file rispetto ai digest md5sums.
 - Risoluzione: Entrambi delegano a un risolutore ad alto livello (zypper/dnf con libsolv, apt con il suo motore di scoring).
@@ -1098,18 +1114,11 @@ Dissezione dell'header binario di AppImage:
 
 ## Dentro un AppImage: Stub &amp; SquashFS
 
-* **Stub runtime ELF**: launcher static-pie all'offset 0 del file (944 KiB)
-* **Payload SquashFS**: filesystem compresso accodato all'offset 944632 (461 KiB)
+* **Stub runtime ELF**: launcher static-pie in testa al file (~922 KiB)
+* **Payload SquashFS**: filesystem compresso accodato dietro (~451 KiB)
 
 ```text
-$ ocio-x86_64.AppImage --appimage-offset
-
-944632
-```
-<!-- .element: class="fragment" -->
-
-```text
-$ unsquashfs -s -offset 944632 ocio-x86_64.AppImage
+$ unsquashfs -s -offset $(./ocio-x86_64.AppImage --appimage-offset) ocio-x86_64.AppImage
 
 Found a valid SQUASHFS
 4:0 superblock on ocio-x86_64.AppImage
@@ -1120,12 +1129,11 @@ compression zstd
 
 Note:
 Meccanica di basso livello del binario AppImage:
-- Un AppImage non e' un archivio con un installer. E' un binario composito formato da uno stub eseguibile ELF a cui e' accodato un filesystem SquashFS compresso.
-- Dimostrare la giunzione: L'opzione di runtime --appimage-offset stampa l'esatto offset in byte dove inizia il payload SquashFS (944632).
-- Lo stub (byte da 0 a 944631): Un eseguibile static-pie (~944 KiB) compilato con musl libc, libfuse3 e squashfuse.
-- Il payload (dal byte 944632 in poi): Un filesystem SquashFS 4.0 puro (~461 KiB, compresso con zstd).
-- Verifica forense: unsquashfs legge il superblock direttamente dall'offset del file senza necessitare di mount o privilegi di root.
-- Ingombro totale del file: 1.40 MB (entra nel floppy disk da 1.44 MB usato come oggetto di scena).
+- Un AppImage non e' un archivio con un installer. E' un binario composito: uno stub eseguibile ELF con un filesystem SquashFS compresso incollato dietro.
+- Lo stub e' un eseguibile static-pie compilato con musl libc, libfuse3 e squashfuse.
+- Il payload e' un filesystem SquashFS 4.0 puro compresso con zstd.
+- Verifica forense: unsquashfs legge il superblock direttamente dal file senza necessitare di mount o privilegi di root. L'opzione --appimage-offset indica dove si trova la giunzione.
+- Ingombro totale del file: 1.34 MiB (1.406.364 byte) — entra nel floppy da 1.44 MB con spazio da spare.
 
 --
 
@@ -1326,21 +1334,40 @@ DA VERIFICARE prima del talk: soname esatto, testo dell'errore e RUNPATH vs RPAT
 
 ---
 
-## Flatpak: Sandbox Desktop Universale
+## Flatpak
 
-* Creato nel 2015 da **Alexander Larsson** in Red Hat (inizialmente *xdg-app*, rinominato nel 2016).
-* Nato per risolvere la frammentazione del desktop Linux disaccoppiando le applicazioni dalle distribuzioni host.
+<div class="grid-2" style="align-items: center; gap: 40px; margin-top: 30px;">
+<div style="flex: 0 0 auto;">
+  <img src="image/flatpak.png" alt="Flatpak" style="max-height: 380px; width: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+</div>
+<div style="flex: 1; font-size: 1.05em; line-height: 1.8;">
+
+* **Alexander Larsson**, 2015
+* App in sandbox, librerie dal runtime.
+
+</div>
+</div>
 
 Note:
 Introduciamo Flatpak:
 - Origine: Creato nel 2015 da Alexander Larsson in Red Hat con il nome iniziale xdg-app, rinominato ufficialmente Flatpak nel 2016. Larsson era uno storico sviluppatore core di GNOME.
-- Il Problema: La frammentazione del desktop Linux. Gli sviluppatori dovevano gestire decine di distribuzioni diverse, versioni disallineate di glibc e cicli di rilascio differenti. Gli aggiornamenti upstream rompevano i binari a causa di librerie di sistema modificate, oppure le distro stabili restavano bloccate su software vecchio.
-- La Visione: Disaccoppiare l'applicazione dal sistema operativo host. Compilare una sola volta ed eseguire ovunque (Ubuntu, Fedora, openSUSE, Arch) senza dipendere dai team di packaging delle singole distribuzioni.
+- Prima di xdg-app: glick, un esperimento di Larsson su un installer single-file (un gioco di parole su "click"). Con la maturazione delle feature di containerizzazione del kernel (namespace, cgroups, seccomp), glick e' evoluto in xdg-app.
+- Il Problema (quattro aspetti sistemici, secondo Larsson):
+  1. Collo di bottiglia delle distro: le distro fanno da gatekeeper e decidono se, quando e come impacchettare un'app; su distro stabili/LTS gli utenti aspettano mesi o anni per novita' e fix, e i bug vengono segnalati sulla versione vecchia della distro invece che all'upstream.
+  2. Incompatibilita' tra distro e tra versioni: nessun singolo binario funzionava su tutte le distro o su tutte le release della stessa distro (glibc, dipendenze e percorsi diversi ovunque).
+  3. Onere del "package everything": ogni distro si trovava costretta a impacchettare decine di migliaia di app, duplicando lo sforzo di ricompilare il mondo e togliendo focus all'innovazione su OS e desktop.
+  4. Mancanza di isolamento: le app tradizionali girano senza vincoli con i permessi dell'utente: qualsiasi app installata puo' leggere, modificare o cancellare tutto in $HOME e accedere ad altri processi.
+- La Visione: Ricollegare direttamente gli sviluppatori agli utenti e disaccoppiare l'applicazione dal sistema operativo host. Compilare una sola volta ed eseguire ovunque (Ubuntu, Fedora, openSUSE, Arch) senza dipendere dai team di packaging delle singole distribuzioni: un fix upstream arriva agli utenti lo stesso giorno, su qualsiasi distro.
 - Tre Pilastri Architetturali:
-  1. Separazione tra Runtime e Applicazione: Le app poggiano su runtime versionati (org.freedesktop.Platform, GNOME, KDE) anziché su /usr dell'host.
+  1. Separazione tra Runtime e Applicazione: Le app poggiano su runtime versionati (org.freedesktop.Platform, GNOME, KDE) anziché su /usr dell'host; i runtime ricevono aggiornamenti di sicurezza indipendenti.
   2. Storage con OSTree: "Git per binari", con deduplicazione tramite hardlink su disco e aggiornamenti atomici a delta.
   3. Sandbox non privilegiata: Isolamento tramite Bubblewrap (bwrap) con namespace del kernel, cgroups e seccomp, con accesso a display e file mediato dai Portali Desktop XDG.
-In the wild: Wezterm costruisce il suo Flatpak contro lo stesso runtime org.freedesktop.Platform//25.08 che usa ocio, piu' Sdk//25.08 e Sdk.Extension.rust-stable//25.08. Stesso runtime, due progetti indipendenti.
+- In the wild: Wezterm costruisce il suo Flatpak contro lo stesso runtime org.freedesktop.Platform//25.08 che usa ocio, piu' Sdk//25.08 e Sdk.Extension.rust-stable//25.08. Stesso runtime, due progetti indipendenti.
+- Curiosita' (se c'e' tempo):
+  - Rinominazione: "XDG" era un acronimo oscuro per gli utenti finali e dire "un'app xdg-app" era goffo.
+  - "Flatpak" e non "Flatpack": la c mancante e' voluta, rende il nome unico e facilissimo da cercare su Google.
+  - Larsson nel 1994 andava in bicicletta a scuola per scaricare il software su 14 floppy; se uno si corrompeva, doveva tornare a farne una copia.
+  - Prima di Flatpak, GTK e Nautilus, Larsson ha creato Dia (1999) per disegnare diagrammi UML per un corso universitario.
 
 --
 
@@ -1373,9 +1400,9 @@ In the wild: Wezterm costruisce il suo Flatpak contro lo stesso runtime org.free
 Note:
 Introduciamo Flatpak con le 4 lenti:
 1. Cos'è: Un formato di distribuzione basato sulla netta separazione tra binari applicativi e runtime di piattaforma condivisi, gestito tramite storage OSTree.
-2. Superpotere: Disaccoppiamento radicale. L'applicazione non vede /usr dell'host, ma un ambiente isolato gestito da Bubblewrap con namespace del kernel e filtri seccomp.
+2. Superpotere: Disaccoppiamento radicale. L'applicazione non vede /usr dell'host, ma un ambiente isolato gestito da Bubblewrap con namespace del kernel e filtri seccomp. Il risultato concreto: un fix o una novita' upstream arriva agli utenti lo stesso giorno, indipendentemente dalla distro che eseguono.
 3. Flusso comune: Installa da repository remoti, esegui, ispeziona l'ambiente interno con --command=sh e gestisci i permessi con flatpak override.
-4. Il limite: Poiché la sandbox è sigillata per impostazione predefinita, qualsiasi comunicazione con l'esterno deve essere dichiarata esplicitamente.
+4. Il limite: Poiché la sandbox è sigillata per impostazione predefinita, qualsiasi comunicazione con l'esterno deve essere dichiarata esplicitamente. L'accesso a risorse host (file, webcam, notifiche) passa dai Portali: dialoghi interattivi lato host che concedono accesso fine-grained solo quando l'utente approva.
 
 --
 
@@ -1451,12 +1478,49 @@ finish-args:
 
 Note:
 Spiegare l'apertura dei varchi (hole-punching):
+- Contesto storico (secondo Larsson): le app Linux tradizionali girano senza vincoli con i permessi dell'utente: qualsiasi app installata puo' leggere, modificare o cancellare tutto in $HOME e accedere ad altri processi. La sandbox Flatpak inverte questo modello: niente accesso implicito, ogni risorsa va ridichiarata.
 - Quando ci si disaccoppia dall'host, di base si interrompe ogni interazione. L'applicazione non puo' visualizzare finestre, usare la GPU o riprodurre suoni.
 - Le finish-args nel manifest Flatpak aprono varchi mirati:
   - i socket per X11/Wayland consentono di disegnare a schermo.
   - /dev/dri abilita l'accelerazione GPU hardware.
   - --share=ipc abilita il trasferimento rapido dei buffer via memoria condivisa (MIT-SHM).
 - Messaggio chiave: La complessita' del packaging non scompare mai, si conserva. Invece di risolvere conflitti di simboli DT_NEEDED, ora configuriamo socket IPC e portali XDG.
+
+--
+
+## Rotto in una notte
+
+<div class="center-card">
+  <img src="image/tuple_flatpak.jpg" alt="La storia di Tuple su Flatpak: gitlab.gnome.org/GNOME/gtk/-/issues/6359" style="max-height: 480px; width: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+  <p style="font-size: 0.6em;"><a href="https://www.youtube.com/watch?v=4y1B8tFoy-k&amp;t=1018s" target="_blank">youtube.com/watch?v=4y1B8tFoy-k</a> · <a href="https://gitlab.gnome.org/GNOME/gtk/-/issues/6359" target="_blank">gitlab.gnome.org/GNOME/gtk/-/issues/6359</a></p>
+</div>
+
+Note:
+Jonathan Marler (Tuple) lo cita come esempio di "adottare problemi che non puoi risolvere":
+- Gennaio 2024: gli utenti segnalano che le annotazioni a schermo di Tuple su Linux sono improvvisamente invisibili. Tuple non rilasciava codice da settimane. Il runtime Flatpak GNOME si era aggiornato da solo in background.
+- Fallimento silenzioso: GTK non ha stampato nessun errore e nessun warning. Gli sviluppatori se ne sono accorti solo dalle lamentele degli utenti.
+- Marler ha individuato la versione del runtime colpevole, ha scritto una app di test minimale che mostra l'alpha blending della finestra rotto e ha aperto la issue GTK #6359.
+- Due mesi dopo, un altro contributor ha usato quella app di test per fare bisect su GTK: un commit di ottimizzazione delle prestazioni aveva rimosso per errore il supporto all'alpha blending.
+- La fix ufficiale di GTK e' arrivata dopo quattro mesi.
+- Risultato: Marler ha abbandonato GTK e Flatpak. L'app Linux ora e' un singolo binario statico compilato con Zig, con WebRTC, PipeWire e i protocolli Wayland/X11 inclusi, cosi' gli aggiornamenti di sistema non possono piu' romperla.
+- Messaggio chiave: il runtime e' una dipendenza che non controlli. Si aggiorna con i suoi tempi, non con i tuoi.
+
+--
+
+## Bottles: Solo Flatpak
+
+<div class="grid-2" style="align-items: center; gap: 40px;">
+<div class="center-card">
+  <img src="image/bottles_pr_comment.jpg" alt="Commento del maintainer di Bottles sulla issue #4629" style="max-height: 440px; width: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+  <p style="font-size: 0.5em; margin: 4px 0;"><a href="https://github.com/bottlesdevs/Bottles/issues/4629#issuecomment-5182539674" target="_blank">github.com/bottlesdevs/Bottles/issues/4629</a></p>
+</div>
+<!-- .element: class="fragment" -->
+<div class="center-card">
+  <img src="image/bottles_rant.png" alt="Please don't unofficially ship Bottles in distribution repositories" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+  <p style="font-size: 0.5em; margin: 4px 0;"><a href="https://usebottles.com/blog/2022-06-07-an-open-letter.md" target="_blank">usebottles.com/blog/an-open-letter</a></p>
+</div>
+<!-- .element: class="fragment" -->
+</div>
 
 ---
 
@@ -1587,7 +1651,7 @@ In the wild: Wezterm (Rust) ha esattamente il lockfile che la slide dice che il 
 | **Container OCI** | **Immagine Userspace Completa** | Minimo (kernel/DRI) | Namespaces + cgroups |
 
 <p class="text-info" style="margin-top: 25px;">
-<em>Ogni scelta di packaging delega e distribuisce la responsabilità tra sviluppatore, maintainer e sistema operativo.</em>
+<em>Ogni scelta di packaging delega e distribuisce la responsabilità tra utente, sviluppatore e maintainer.</em>
 </p>
 
 Note:
@@ -1608,7 +1672,7 @@ La conclusione fondamentale dell'analisi dei formati:
 | **Raw Binary** | 1.2 MB | 1.2 MB | | 3.8 ms / 123 ms *(base)* | 78 MiB |
 | **RPM** | 486 KB | 1.27 MB | 36 pacchetti / 226 MiB | = nativo | 78 MiB |
 | **DEB** | 436 KB | 1.26 MB | 41 pacchetti / 217 MB | = nativo | 78 MiB |
-| **AppImage** | 1.44 MB | 1.44 MB | Stack host GL/X11 + FUSE | +10 ms / +5 ms | 83 MiB |
+| **AppImage** | 1.34 MiB | 1.34 MiB | Stack host GL/X11 + FUSE | +10 ms / +5 ms | 83 MiB |
 | **Flatpak** | 480 KB | 1.2 MB | Runtime ~1.1 GB | +113 ms / +124 ms | 90 MiB |
 <!-- .element: style="font-size: 0.68em; line-height: 1.2;" -->
 
@@ -1618,7 +1682,7 @@ Misure empiriche raccolte nel benchmark (cache a caldo, mediane sotto Xvfb + llv
 - Condizioni di misura: L'overhead di avvio di Flatpak (+113 ms) è dominato dal launcher: proxy D-Bus e helper (i namespace pesano ~6 ms). Misure a caldo sotto Xvfb/llvmpipe.
 - Il paradosso della delega su disco: Un pacchetto da 486 KB (RPM) o 436 KB (DEB) chiede all'host circa 220 MiB di dipendenze (circa 450 volte il proprio peso). La delega non elimina le dipendenze; le sposta su pacchetti condivisi dall'intero sistema.
 - Runtime Flatpak: Il bundle da 480 KB richiede circa 1.1 GB di runtime (Platform 669 MB + GL 462 MB), condivisi per branch e deduplicati da OSTree.
-- AppImage e il floppy: Con 1.44 MB (1.444.344 byte), l'AppImage entra esattamente nel floppy da 1.44 MB della gag iniziale! Ma ci riesce solo perché non include librerie di sistema: OpenGL, X11 e glibc arrivano dall'host.
+- AppImage e il floppy: Con 1.406.364 byte, l'AppImage entra nel floppy da 1.44 MB della gag iniziale con spazio da spare! Ma ci riesce solo perché non include librerie di sistema: OpenGL, X11 e glibc arrivano dall'host.
 - Overhead di avvio: AppImage costa solo ~10 ms (CLI) e ~5 ms (GUI), impercettibile a occhio nudo. Flatpak aggiunge una tassa fissa di ~115 ms. Sorpresa: i namespace del kernel pesano solo ~6 ms (bwrap puro: 9.7 vs 4.0 ms); il resto è dovuto al launcher di flatpak (3 stadi bwrap, xdg-dbus-proxy, session helper e round trip D-Bus).
 - Memoria RAM: L'impatto in RAM varia di meno del 15% tra tutti i formati (da 78 a 90 MiB PSS). Mesa software (llvmpipe) domina l'allocazione; il formato di packaging incide pochissimo sulla memoria a runtime.
 - Sintesi per il palco: Non esiste packaging a costo zero su Linux. Si sceglie semplicemente quale attore della catena deve pagare il prezzo della complessità.
@@ -1655,6 +1719,21 @@ Spiegare i confini deliberati del talk:
 - Nix e GNU Guix: Sistemi dichiarativi affascinanti, ma il loro modello di store (/nix/store) e' un paradigma completamente a parte che merita una presentazione dedicata.
 - Arch AUR: Ricette PKGBUILD per compilare da sorgente sulla macchina utente, non distribuzione di artefatti binari pronti.
 - La lezione sulla baseline GLIBC: Ribadire che includere librerie applicative non protegge dalla libreria C dell'host. Compilare un AppImage su Tumbleweed o Fedora 41 ne impedisce l'avvio su Ubuntu 20.04 o SLE 15. La best practice industriale e' compilare dentro container Debian oldstable o CentOS 7.
+
+---
+
+## Tre Prospettive, Un Solo Binario
+
+<div class="grid-3" style="text-align: center; font-size: 1.4em; margin-top: 40px;">
+  <p><strong>Utente</strong></p>
+  <p><strong>Sviluppatore</strong></p>
+  <p><strong>Maintainer</strong></p>
+</div>
+
+Note:
+Chiusura del triade introdotta all'inizio della presentazione.
+Lasciare che il pubblico guidi la discussione: cosa ha guadagnato o perso
+ciascuna prospettiva con ogni formato coperto?
 
 ---
 
