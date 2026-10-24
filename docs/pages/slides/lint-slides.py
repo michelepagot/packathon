@@ -348,13 +348,16 @@ def parse_slide(raw_slide: str, index: int, start_line: int = 1) -> SlideData:
     )
 
 
-def load_presentation(file_path: Path) -> List[SlideData]:
-    """Read a presentation markdown file and parse each slide safely (Read-Only)."""
+def load_presentation(file_path: Path) -> Tuple[List[SlideData], List[Tuple[int, str]]]:
+    """Read a presentation markdown file and parse each slide safely (Read-Only).
+    Returns (slides, separator_positions) where separator_positions is a list of
+    (line_number, separator_text) for each '--' or '---' line found in the file."""
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 
     lines = content.splitlines()
     slides_data: List[Tuple[int, List[str], str]] = []  # (start_line, lines, separator)
+    separator_positions: List[Tuple[int, str]] = []  # (line_number, separator_text)
     current_lines: List[str] = []
     current_start = 1
     current_sep = "---"
@@ -363,6 +366,7 @@ def load_presentation(file_path: Path) -> List[SlideData]:
         m = re.match(r"^\s*(---|--)\s*$", line)
         if m:
             slides_data.append((current_start, current_lines, current_sep))
+            separator_positions.append((idx, m.group(1)))
             current_lines = []
             current_start = idx + 1
             current_sep = m.group(1)
@@ -380,7 +384,7 @@ def load_presentation(file_path: Path) -> List[SlideData]:
         slide_obj = parse_slide(raw, idx, start_line=start_line)
         slide_obj.separator = sep
         slides.append(slide_obj)
-    return slides
+    return slides, separator_positions
 
 
 class SlideDeckLinter:
@@ -391,6 +395,10 @@ class SlideDeckLinter:
         self.it_slides = it_slides
         self.strict = strict
         self.issues: List[Issue] = []
+        self.en_file_path: Optional[Path] = None
+        self.it_file_path: Optional[Path] = None
+        self.en_separator_positions: List[Tuple[int, str]] = []
+        self.it_separator_positions: List[Tuple[int, str]] = []
 
     # =========================================================================
     # Rule 1: Both decks have to have the same number of slides and separators
@@ -913,6 +921,42 @@ class SlideDeckLinter:
                 )
 
     # =========================================================================
+    # Rule 7: Slide separator must be followed by a blank line
+    # =========================================================================
+    def check_separator_spacing_file(
+        self,
+        file_path: Path,
+        separator_positions: List[Tuple[int, str]],
+        deck_name: str,
+    ) -> None:
+        """Rule 7: A '--' or '---' separator line must be followed by a blank line.
+        reveal.js's data-separator regex (e.g. '^\\r?\\n--\\r?\\n$') requires the
+        separator to be on its own line with a blank line after it. Without the
+        trailing blank line the separator is not recognized and the next slide's
+        content is absorbed into the current slide."""
+        with open(file_path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+
+        for line_no, sep_text in separator_positions:
+            idx = line_no - 1  # 0-based
+            if idx + 1 < len(lines) and lines[idx + 1].strip():
+                self.issues.append(
+                    Issue(
+                        slide_index=None,
+                        category="slides",
+                        severity="ERROR",
+                        line_number=line_no,
+                        message=(
+                            f"Missing blank line after slide separator in {deck_name} deck (line {line_no}): "
+                            f"'{sep_text}' is immediately followed by '{lines[idx + 1].strip()}'. "
+                            f"reveal.js requires a blank line after the separator "
+                            f"(data-separator='^\\r?\\n--\\r?\\n$'), otherwise the next slide's "
+                            f"content is absorbed into the current slide."
+                        ),
+                    )
+                )
+
+    # =========================================================================
     # Rule 5: Used images must match identically between decks
     # =========================================================================
     def check_images(self, s_en: SlideData, s_it: SlideData) -> None:
@@ -960,6 +1004,10 @@ class SlideDeckLinter:
         # Deck-level checks
         if "slides" in categories:
             self.check_slide_count()
+            if self.en_file_path and self.en_separator_positions:
+                self.check_separator_spacing_file(self.en_file_path, self.en_separator_positions, "primary")
+            if self.it_file_path and self.it_separator_positions:
+                self.check_separator_spacing_file(self.it_file_path, self.it_separator_positions, "secondary")
         if "agenda" in categories:
             self.check_agenda()
 
@@ -1106,8 +1154,8 @@ def main() -> None:
     use_color = not args.no_color and sys.stdout.isatty()
 
     try:
-        en_slides = load_presentation(en_path)
-        it_slides = load_presentation(it_path)
+        en_slides, en_seps = load_presentation(en_path)
+        it_slides, it_seps = load_presentation(it_path)
     except Exception as e:
         print(f"Error loading slide files: {e}", file=sys.stderr)
         sys.exit(2)
@@ -1115,6 +1163,10 @@ def main() -> None:
     rules = [r.strip() for r in args.rules.split(",") if r.strip()] if args.rules else None
 
     linter = SlideDeckLinter(en_slides, it_slides, strict=args.strict)
+    linter.en_file_path = en_path
+    linter.it_file_path = it_path
+    linter.en_separator_positions = en_seps
+    linter.it_separator_positions = it_seps
     issues = linter.run_all(enabled_categories=rules)
 
     exit_code = print_report(issues, en_slides, it_slides, verbose=args.verbose, use_color=use_color)
