@@ -22,6 +22,13 @@ Footprint di runtime massimamente realistico: richiede accelerazione hardware Op
 
 --
 
+<div class="center-card">
+  <img src="image/Floppy_disk_2009_G1.jpg" alt="3.5 inch Floppy Disk" style="max-height: 480px; width: auto; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);" />
+  <p class="text-muted" style="font-size: 0.45em; margin-top: 12px; opacity: 0.7;">Foto: <a href="https://commons.wikimedia.org/wiki/File:Floppy_disk_2009_G1.jpg" target="_blank">Floppy Disk da 3.5"</a> di George Chernilevsky (Pubblico Dominio / CC0)</p>
+</div>
+
+--
+
 ## Slides
 <!-- .slide: class="text-center" -->
 
@@ -124,10 +131,6 @@ cannot open shared object file:
 No such file or directory
 ```
 <!-- .element: class="fragment" -->
-
-<div class="center-card fragment">
-  <img src="image/rabbit_hole_2_vi.png" alt="Down the rabbit hole" style="max-height: 360px; border: none; box-shadow: none;" />
-</div>
 
 Note:
 Chiedere al pubblico il codice di uscita: 127.
@@ -621,7 +624,7 @@ Note:
 - `shlibs`: 1 riga per SONAME, es. `libOpenGL.so.0 libgl1 (>= 1.3.2)`
 - `symbols`: vincoli per simbolo → tracciamento ABI esatto
 - In the wild: Wezterm → `dpkg-shlibdeps -O -e debian/usr/bin/*` in container target
-- Demo live (4 passi): `packaging/packator.sh debian builder packaging/demo/demo-deb.sh --deb dist/ocio_0.1.0_amd64.deb --bin build-debian-static/bin/ocio --bin-shared build-debian-shared/bin/ocio`
+- Demo live (successo + modalita' di fallimento): `packaging/packator.sh debian builder packaging/deb/build-deb.sh --with-shared --pause`
 - Differenza di modalita' di fallimento rispetto a RPM: qui la libreria deve essere un pacchetto noto al sistema di packaging (con un file shlibs leggibile), altrimenti la build fallisce rumorosamente. In RPM, find-requires emette il SONAME come capability senza bisogno di un database di pacchetti.
 
 --
@@ -639,7 +642,7 @@ libGL.so.1 libgl1 (>= 1.3.2)
 ```
 
 * **Posto da**: `apt install` / `dpkg -i`
-* **Usato da**: `dpkg-shlibdeps` per mappare SONAME &rarr; (pacchetto, versione)
+* **Usato da**: `dpkg-shlibdeps` per mappare SONAME (pacchetto, versione)
 
 Note:
 La tabella di lookup *.shlibs:
@@ -681,6 +684,7 @@ Dove vive la libreria condivisa?
 - Contrasto RPM: find-requires non ha bisogno di un database di pacchetti. Legge DT_NEEDED ed emette il SONAME come capability (libraylib.so.550()(64bit)) direttamente. L'RPM viene costruito senza problemi; il fallimento si sposta al momento dell'installazione quando nessun repository fornisce la capability. Il lato DEB ha bisogno del salto extra SONAME-a-pacchetto, e quel salto è il punto in cui una libreria compilata da sorgente si rompe.
 
 --
+
 ## Dopo l'Installazione: Risolto
 
 ```text
@@ -694,10 +698,6 @@ $ ldd /usr/bin/ocio
   libxcb.so.1 => /lib64/libxcb.so.1
   ...
 ```
-
-<p class="fragment text-info" style="margin-top: 25px;">
-<strong>486 KB</strong> di pacchetto &rarr; <strong>36</strong> pacchetti &rarr; <strong>52.6 MiB</strong> di download
-</p>
 
 Note:
 Confronto diretto con il crash iniziale:
@@ -994,7 +994,7 @@ La struttura della ricetta Debian:
 
 * <!-- .element: class="fragment" --> Contratto Binario: Il pacchetto trasporta solo il payload &rarr; dipendenze delegate all'OS host
 * <!-- .element: class="fragment" --> Chiusura Transitiva: Il solver (`libsolv` / APT) scansiona il grafo del repository
-* <!-- .element: class="fragment" --> Zero Overhead a Runtime: `execve()` diretta sul `/usr` di sistema &rarr; nessun demone o wrapper
+* <!-- .element: class="fragment" --> Esecuzione Diretta: `execve()` sul binario in `/usr`
 * <!-- .element: class="fragment" --> Registro di Sistema: Il database host traccia proprietà dei file, checksum e dipendenze
 
 Note:
@@ -1252,15 +1252,17 @@ appimagetool --runtime-file /usr/lib/runtime-x86_64 \
 <!-- .element: class="fragment" -->
 
 Note:
-I quattro passi che packaging/appimage/build-appimage.sh esegue con il default --method linuxdeploy:
-1. Compila: una normale build CMake Release. Ancora niente di specifico per AppImage.
-2. Prepara: installa solo il componente ocio (l'install di default contiene anche i file di sviluppo di raylib) dentro AppDir, con --prefix /usr perche' linuxdeploy si aspetta il layout usr/. Si ottiene usr/bin/ocio piu' file desktop, icone e metainfo.
-   DESTDIR vs --prefix: DESTDIR=AppDir e' una root di staging reale, relativa alla directory di lavoro corrente (la convenzione POSIX DESTDIR, la stessa di `make install DESTDIR=...` o di BUILDROOT di rpmbuild). --prefix /usr e' un prefisso virtuale: CMake calcola ogni percorso di installazione come DESTDIR + prefix, quindi i file finiscono in ./AppDir/usr/... senza mai toccare il /usr reale della macchina di build. Le due variabili sono indipendenti: DESTDIR e' dove l'albero viene fisicamente scritto, --prefix e' il layout che i file fingono di avere dentro.
-   Perche' --prefix /usr in particolare: linuxdeploy e il formato AppImage si aspettano il layout FHS dentro l'AppDir (usr/bin, usr/lib, usr/share). Con --prefix / e DESTDIR=AppDir si otterrebbe AppDir/bin/ocio (senza usr/), che linuxdeploy non riconoscerebbe. --prefix /usr + DESTDIR=AppDir produce esattamente il sottoalbero usr/ che il formato richiede, allo stesso modo in cui rpmbuild staggia in BUILDROOT e dpkg-buildpackage in una fakeroot.
-3. Includi: linuxdeploy legge DT_NEEDED in modo ricorsivo, copia in usr/lib ogni libreria che non e' nella excludelist, imposta RUNPATH=$ORIGIN/../lib, fa lo strip e crea AppRun e i link al .desktop e all'icona al primo livello. Per la nostra build di default non copia niente: tutto cio' che serve a ocio e' nella excludelist (slide successiva).
-4. Impacchetta: appimagetool trasforma l'AppDir in un'immagine SquashFS e ci mette davanti il runtime type2, lo stub ELF con il magic AI\x02 della slide su EI_PAD. Passiamo il runtime in modo esplicito, altrimenti appimagetool lo scarica a ogni build.
-La ricetta a mano (--method appimagetool) salta il passo 3: AppRun, il .desktop e l'icona li mettiamo noi, e nessuno controlla le librerie.
-I tre strumenti (linuxdeploy, appimagetool, runtime) sono gia' installati nelle immagini builder; linuxdeploy e appimagetool sono gia' estratti, quindi girano senza FUSE.
+I quattro passi di build-appimage.sh (--method linuxdeploy):
+1. **Compila**: build CMake Release standard, nulla di specifico per AppImage.
+2. **Prepara**: installa solo il componente ocio (l'install di default include anche i file di sviluppo di raylib) in AppDir.
+   - DESTDIR = dove l'albero viene scritto (staging reale, come BUILDROOT di rpmbuild).
+   - --prefix = il layout che i file fingono di avere dentro.
+   - --prefix /usr e' obbligatorio: AppImage richiede il layout FHS (usr/bin, usr/lib, usr/share) dentro AppDir. Con --prefix / otterremmo AppDir/bin/ocio, che linuxdeploy non riconoscerebbe.
+3. **Includi**: linuxdeploy legge DT_NEEDED ricorsivamente, copia in usr/lib le librerie non in excludelist, imposta RUNPATH=$ORIGIN/../lib, crea AppRun e i link .desktop/icona. Per la build di default non copia nulla: tutto e' in excludelist (slide successiva).
+4. **Impacchetta**: appimagetool crea l'immagine SquashFS e ci mette davanti il runtime type2 (lo stub ELF con magic AI\x02 della slide su EI_PAD). Runtime passato esplicito, altrimenti appimagetool lo scarica a ogni build.
+
+La ricetta a mano (--method appimagetool) salta il passo 3: AppRun, .desktop e icona li mettiamo noi, e nessuno controlla le librerie.
+Gli strumenti (linuxdeploy, appimagetool, runtime) sono gia' nelle immagini builder; linuxdeploy e appimagetool sono gia' estratti, girano senza FUSE.
 
 --
 
@@ -1280,10 +1282,6 @@ $ ./ocio.AppImage            # vanilla Tumbleweed container
 /ocio.AppImage: error while loading shared libraries: libOpenGL.so.0
 ```
 <!-- .element: class="fragment" -->
-
-<p class="fragment text-info">
-Scatola giusta, host sbagliato: un container nudo non è un desktop.
-</p>
 
 Note:
 Cosa e' la excludelist:
@@ -1431,8 +1429,7 @@ app  bin  dev  etc  lib  lib64  proc  run  sys  usr  var
 
 * **`/app`**: Payload dell'applicazione e librerie dedicate (mount in sola lettura)
 * **`/usr`**: Runtime condiviso (`org.freedesktop.Platform`), immutabile e versionato
-* **Host `/`**: Completamente invisibile; isolamento garantito da **Bubblewrap** (`bwrap`)
-<!-- .element: class="fragment" -->
+* **Host `/`**: Completamente invisibile; isolamento garantito da **Bubblewrap** (bwrap)
 
 Note:
 Struttura del filesystem interno in Flatpak:
@@ -1457,10 +1454,6 @@ $ ostree --repo=repo static-delta generate --from=<old> --to=<new>
 ```
 <!-- .element: class="fragment" -->
 
-<p class="fragment text-info" style="margin-top: 25px;">
-<strong>Perche' conta:</strong> un repo Flatpak e' solo file statici, quindi puo' essere servito da qualsiasi web server (GitHub Pages).
-</p>
-
 Note:
 OSTree e' il motore di storage sotto ogni Flatpak:
 - E' git, ma gli oggetti sono contenuti di filesystem, non file sorgente. Ogni file, elenco di directory e commit e' memorizzato per il suo hash SHA-256, quindi i file identici sono salvati una sola volta (deduplicazione).
@@ -1484,10 +1477,6 @@ finish-args:
   - --device=dri        # GPU acceleration (/dev/dri)
   - --share=ipc         # Shared memory (MIT-SHM)
 ```
-
-<p class="fragment text-info" style="margin-top: 25px;">
-<strong>Conseguenza:</strong> La complessità si sposta dai simboli di libreria dinamica alla configurazione di socket IPC e portali.
-</p>
 
 Note:
 Spiegare l'apertura dei varchi (hole-punching):
@@ -1537,131 +1526,35 @@ Jonathan Marler (Tuple) lo cita come esempio di "adottare problemi che non puoi 
 
 ---
 
-## Rilascio: Artefatto vs Canale
-
-> *"CPack genera cinque formati in una riga. Ma un file non è un canale di distribuzione."*
-
-<div class="grid-2 fragment" style="margin-top: 25px;">
-<div class="box-danger">
-
-#### CPack (Artefatto Locale)
-* Compila sull'host non isolato dello sviluppatore
-* Inserisce percorsi e toolchain locali nei metadati
-* Nessuna provenienza crittografica o fiducia
-
-</div>
-<div class="box-success">
-
-#### Build Service (OBS / Koji)
-* **Chroot isolati** (accesso di rete disabilitato in build)
-* Ricompilazioni automatiche su aggiornamenti di libreria
-* Controllo policy automatico (`rpmlint`) e firma con chiavi
-
-</div>
-</div>
-
-<p class="fragment text-info" style="margin-top: 25px;">
-<strong>Due pipeline reali</strong>: <a href="https://github.com/opentofu/opentofu" target="_blank">OpenTofu</a> (Go, GoReleaser, triplo-signed) &middot; <a href="https://github.com/wezterm/wezterm" target="_blank">Wezterm</a> (Rust, per-distro, unsigned)
-</p>
-
-Note:
-La tesi centrale dell'Atto 3:
-- Creare un .deb o un .rpm con CPack o alien e' tecnicamente banale, ma genera un artefatto orfano.
-- Il problema dell'host "sporco": compilando sulla propria macchina di sviluppo si rischia di contaminare i pacchetti con percorsi locali, patch non tracciate o flag del compilatore specifici.
-- La vera distribuzione richiede un'infrastruttura di build fidata (Open Build Service, Koji, Launchpad):
-  1. Build ermetiche in chroot puliti senza connessione Internet.
-  2. Il grafo delle dipendenze innesca ricompilazioni automatiche quando cambiano le librerie condivise.
-  3. Controlli di conformita' (rpmlint, suite di test) e firma GPG automatizzata con chiavi protette.
-
---
-
 ## Aggiornamenti: Canale vs Formato
 
 La capacità di aggiornamento dipende dal **canale**, non dal formato:
 
 * <!-- .element: class="fragment" --> `.deb` / `.rpm` via repository: Aggiornamenti automatici dell'OS (`apt upgrade`, `zypper dup`).
-* <!-- .element: class="fragment" --> File installato a mano (`dpkg -i` / `rpm -i`): Artefatto orfano; nessuna patch futura.
-* <!-- .element: class="fragment" --> Flatpak via repository OSTree (Flathub o self-hosted su GitHub Pages): delta statici a blocchi, aggiornamenti atomici.
-* <!-- .element: class="fragment" --> AppImage: Statico per impostazione predefinita; richiede una nota ELF `.upd_info` che punti a un file di controllo `zsync`.
+* <!-- .element: class="fragment" --> Flatpak via repository (Flathub o self-hosted): aggiornamenti atomici.
+* <!-- .element: class="fragment" --> AppImage: statico; aggiornamenti delta via AppImageUpdate (`.upd_info` + `.zsync`).
 
 <p class="fragment text-danger" style="margin-top: 25px;">
 <em>Un eseguibile privo di canale di aggiornamento è un debito di sicurezza perpetuo.</em>
 </p>
 
 Note:
-Il paradosso del ciclo di vita del software:
-- Il formato di pacchetto e' solo una fotografia statica. Il meccanismo di aggiornamento e' una relazione continua nel tempo.
-- Quando un utente scarica un .deb o un .rpm dalle release di GitHub e lancia dpkg -i o rpm -i, quel pacchetto e' orfano: nessun repository lo conosce e non ricevera' mai patch automatiche dal sistema.
-- Flatpak risolve il problema con OSTree: gli aggiornamenti sono indicizzati per contenuto e scaricati come delta binari atomici (vengono trasferiti solo i blocchi modificati).
-- Il canale non deve essere Flathub: un repository OSTree e' un semplice albero di file statico (commit + summary in formato archive-z2). Per questo lo stesso meccanismo funziona su GitHub Pages: ogni push a main genera un nuovo commit firmato, e l'utente riceve l'aggiornamento con un normale flatpak update.
-- AppImage e' completamente isolato di base. L'aggiornamento richiede l'inserimento di una nota ELF .upd_info nell'eseguibile che punti a un file di controllo zsync su un server remoto.
-- Regola fondamentale di sicurezza: distribuire un binario senza un canale di aggiornamento significa lasciare le vulnerabilita' permanentemente sulle macchine degli utenti.
-In the wild: Wezterm implementa esattamente questo meccanismo. ci/appimage.sh imposta UPDATE_INFORMATION con lo schema gh-releases-zsync|wez|wezterm|latest|WezTerm-*.AppImage.zsync, e il file .zsync viene caricato accanto all'AppImage su GitHub Releases. L'AppImage si aggiorna in modo incrementale da li.
-
---
-
-## Firme: Integrità e Provenienza
-
-* `--allow-unsigned-rpm`: nessuna prova di origine, scriptlet eseguiti come **root**
-
-| Ecosistema | Livello di Firma | Validazione a Runtime |
-|---|---|---|
-| **APT** | Metadati repo | Verifica obbligatoria pre-unpack |
-| **RPM** | Header pacchetto | Verifica GPG su keyring |
-| **Flatpak** | Commit OSTree | Verifica crittografica ad ogni pull |
-| **AppImage** | Blocco ELF integrato | **Nessuna verifica automatica** |
-
-<p class="fragment" style="margin-top: 25px;">
-<strong>2026</strong>: <em>Sigstore / Keyless</em> per la CI; i keyring GPG restano obbligatori in distro.
-</p>
-
-<p class="fragment" style="margin-top: 15px;">
-<strong>In produzione</strong>: OpenTofu firma 3 volte (GPG interno + detached + cosign); Wezterm solo SHA256
-</p>
-
-Note:
-Le implicazioni di sicurezza delle firme digitali:
-- Nella demo live abbiamo dovuto usare --allow-unsigned-rpm. In produzione e' un rischio critico: i pacchetti RPM e DEB possono contenere scriptlet di manutenzione eseguiti come root.
-- Installare un pacchetto non firmato equivale a lanciare curl ... | sudo bash.
-- Differenze architetturali nella verifica:
-  1. APT verifica prima i metadati del repository; i singoli file .deb sono convalidati tramite i digest sha256 nel file Release firmato.
-  2. RPM firma direttamente header e payload all'interno del file; zypper/rpm valida la firma contro le chiavi GPG del sistema.
-  3. Flatpak verifica crittograficamente i commit e i sommari OSTree a ogni pull.
-  4. AppImage supporta firme incorporate, ma l'avvio standard in spazio utente non esegue alcun controllo forzato.
-- Tendenza moderna: Sigstore e cosign abilitano provenienza keyless per le release su GitHub, ma le distribuzioni continuano a pretendere anelli di chiavi GPG.
-In the wild: OpenTofu firma ogni artefatto tre volte: GPG interno al pacchetto (nFPM), GPG detached (.gpgsig), e cosign/Sigstore (.sig + .pem). Wezterm non firma: solo SHA256 per file. La scelta e' un trade-off: OpenTofu scambia breadth per firma forte; Wezterm scambia firma per packaging nativo per-distro.
-
---
-
-## SBOM: Il Paradosso della Supply Chain
-
-* Nei linguaggi moderni (Rust, Go): lockfile deterministici (`Cargo.lock`, `go.sum`).
-* **Nel C con CMake, non esiste un lockfile universale**:
-  * `raylib` incorporata a build time via Git (`FetchContent`, archivio statico).
-  * Stack di sistema (X11, OpenGL, glibc) risolto dinamicamente a runtime dalla distro.
-
-Note:
-La realta' dell'SBOM nel software di sistema:
-- Gli sviluppatori abituati a Rust, Go o al Python moderno danno per scontati i lockfile che bloccano ogni dipendenza transitiva a un digest crittografico.
-- Nel C con CMake non esiste alcun lockfile universale.
-- In ocio il grafo delle dipendenze e' spezzato in due meta':
-  1. Tempo di compilazione: raylib viene scaricata via Git (FetchContent) e collegata staticamente nel binario.
-  2. Tempo di esecuzione: X11, OpenGL e libc sono totalmente assenti dal repository sorgente; vengono risolti dinamicamente dall'host al momento del lancio.
-- Il Paradosso dell'SBOM in C: le dipendenze sono divise tra tempo di compilazione e tempo di installazione. Un SBOM completo non si deduce dal codice sorgente: richiede l'osservazione della build dentro un build service isolato.
-- E' impossibile generare una Software Bill of Materials accurata scansionando solo git. E' necessario catturare l'ambiente di build ermetico (SPDX / CycloneDX generati dentro OBS o Koji).
-In the wild: Wezterm (Rust) ha esattamente il lockfile che la slide dice che il C non ha: Cargo.lock, vendored con cargo vendor --locked --versioned-dirs, e flatpak-cargo-generator che lo traduce in generated-sources.json per la build sandboxed. Il paradosso e' specifico del C con CMake, non del packaging in generale.
+- Formato = snapshot statico. Aggiornamento = relazione continua nel tempo.
+- .deb/.rpm installato a mano: orfano, nessuna patch futura.
+- Flatpak: delta atomici via OSTree; il repo e' un albero di file statico, funziona anche su GitHub Pages.
+- AppImage: nota ELF .upd_info -> file .zsync su server remoto; AppImageUpdate scarica solo i blocchi cambiati.
+- Sicurezza: binario senza canale di aggiornamento = vulnerabilita' permanenti.
+- In the wild: Wezterm usa gh-releases-zsync su GitHub Releases.
 
 ---
 
 ## Sintesi: Matrice delle Responsabilità
 
-| Formato | Chi risolve le dipendenze | Accoppiamento Host | Modello |
+| Formato | Dipendenze | Host | Modello |
 |---|---|---|---|
-| **Tarball** | Sviluppatore (statico) + Host (dinamico) | Indefinito / Fragile | `execve` diretto |
-| **`.deb` / `.rpm`** | **Distribuzione** (SAT solver) | Totale | `execve` nativo su `/usr` |
-| **AppImage** | **Bundle** (SquashFS payload) | Ridotto (glibc/FUSE) | Mount FUSE + `execve` |
-| **Flatpak** | **Runtime Condiviso** (Freedesktop) | Disaccoppiato | Bubblewrap + Portali |
-| **Container OCI** | **Immagine Userspace Completa** | Minimo (kernel/DRI) | Namespaces + cgroups |
+| **`.deb`/`.rpm`** | **Distro** (SAT) | Totale | `execve` nativo su `/usr` |
+| **AppImage** | **Bundle** (SquashFS) | glibc/FUSE | Mount FUSE + `execve` |
+| **Flatpak** | **Runtime** (Freedesktop) | Disaccoppiato | Bubblewrap |
 
 <p class="text-info" style="margin-top: 25px;">
 <em>Ogni scelta di packaging delega e distribuisce la responsabilità tra utente, sviluppatore e maintainer.</em>
@@ -1680,13 +1573,13 @@ La conclusione fondamentale dell'analisi dei formati:
 
 ## Metriche
 
-| Formato | Artefatto | Installato | Chiusura Host | Avvio (CLI / GUI) | RAM |
+| Formato | Artefatto | Installato | Costo Host | Avvio (CLI / GUI) | RAM |
 |---|---|---|---|---|---|
-| **Raw Binary** | 1.2 MB | 1.2 MB | | 3.8 ms / 123 ms *(base)* | 78 MiB |
-| **RPM** | 486 KB | 1.27 MB | 36 pacchetti / 226 MiB | = nativo | 78 MiB |
-| **DEB** | 436 KB | 1.26 MB | 41 pacchetti / 217 MB | = nativo | 78 MiB |
+| **Raw Binary** | 1.2 MiB | 1.34 MiB | | 3.8 ms / 123 ms *(base)* | 78 MiB |
+| **RPM** | 486 KiB | 1.34 MiB | 36 pacchetti / 226 MiB | = nativo | 78 MiB |
+| **DEB** | 436 KiB | 1.34 MiB | 41 pacchetti / 217 MiB | = nativo | 78 MiB |
 | **AppImage** | 1.34 MiB | 1.34 MiB | Stack host GL/X11 + FUSE | +10 ms / +5 ms | 83 MiB |
-| **Flatpak** | 480 KB | 1.2 MB | Runtime ~1.1 GB | +113 ms / +124 ms | 90 MiB |
+| **Flatpak** | 480 KiB | 1.34 MiB | Runtime ~1.1 GiB | +113 ms / +124 ms | 90 MiB |
 <!-- .element: style="font-size: 0.68em; line-height: 1.2;" -->
 
 Note:
@@ -1702,40 +1595,7 @@ Misure empiriche raccolte nel benchmark (cache a caldo, mediane sotto Xvfb + llv
 
 --
 
-## Confini e Scelte di Scope
-
-<div class="grid-2">
-<div>
-
-### Cosa Abbiamo Escluso
-* **Snap**: Demone `snapd` e dipendenza da AppArmor
-* **Nix / Guix**: Store puramente funzionale (`/nix/store`)
-* **Arch / AUR**: Ricette di build, non binari distribuiti
-
-</div>
-<div>
-
-### La Trappola della GLIBC
-* AppImage compilati su distro recenti falliscono su LTS datate
-* **Soluzione**: Compilare i bundle dentro container LTS storici
-
-</div>
-</div>
-
-<p class="text-warn fragment" style="margin-top: 30px;">
-<em>Sono scelte sistemistiche e confini precisi, non dimenticanze.</em>
-</p>
-
-Note:
-Spiegare i confini deliberati del talk:
-- Snap: Richiede un demone privilegiato persistente (snapd), e' vincolato all'infrastruttura di Canonical e poggia su patch AppArmor del kernel non uniformi su tutte le distro.
-- Nix e GNU Guix: Sistemi dichiarativi affascinanti, ma il loro modello di store (/nix/store) e' un paradigma completamente a parte che merita una presentazione dedicata.
-- Arch AUR: Ricette PKGBUILD per compilare da sorgente sulla macchina utente, non distribuzione di artefatti binari pronti.
-- La lezione sulla baseline GLIBC: Ribadire che includere librerie applicative non protegge dalla libreria C dell'host. Compilare un AppImage su Tumbleweed o Fedora 41 ne impedisce l'avvio su Ubuntu 20.04 o SLE 15. La best practice industriale e' compilare dentro container Debian oldstable o CentOS 7.
-
----
-
-## Tre Prospettive, Un Solo Binario
+## Un binario, tre prospettive
 
 <div class="grid-3" style="text-align: center; font-size: 1.4em; margin-top: 40px;">
   <p><strong>Utente</strong></p>
