@@ -44,7 +44,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # (remove dpkg exclusions to allow fzf shell key-bindings from /usr/share/doc to be installed)
 RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes /etc/dpkg/dpkg.cfg.d/docker && \
     apt-get update && \
-    apt-get install -y --no-install-recommends fzf && \
+    apt-get install -y --no-install-recommends fzf findutils file binutils && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

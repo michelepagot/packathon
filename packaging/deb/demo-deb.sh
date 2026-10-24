@@ -11,9 +11,9 @@
 # transitive closure to satisfy dependencies.
 #
 # GUARANTEES:
-# - READ-ONLY: Never modifies the host system, installs no packages.
 # - ENVIRONMENT-AWARE: Detects Debian/Ubuntu vs other distributions.
-# - STATE-AWARE: Detects if ocio is installed; skips installation-only steps.
+# - STATE-AWARE: Detects if ocio is already installed; skips re-install.
+# - CONTAINER-SAFE: Installs ocio into the container root (safe to restart).
 # =============================================================================
 
 set -euo pipefail
@@ -24,8 +24,8 @@ source "${SCRIPT_DIR}/../lib/pause.sh"
 PAUSE_MODE=false
 DRY_RUN=false
 BINARY_CANDIDATE=""
-BINARY_SHARED_CANDIDATE=""
 DEB_CANDIDATE=""
+EXTRACT_DIR=""
 
 usage() {
     echo "Usage: $(basename "$0") [OPTIONS]"
@@ -33,13 +33,15 @@ usage() {
     echo "Hands-on exploration of DEB anatomy, metadata, and dependency resolution."
     echo ""
     echo "Options:"
-    echo "  --deb, -deb PATH Explicit path to the ocio DEB package for inspection"
-    echo "  --bin PATH       Explicit path to the ocio binary for dependency inspection"
-    echo "  --bin-shared PATH  Path to a shared-raylib ocio binary (demonstrates the"
-    echo "                     dpkg-shlibdeps failure mode for source-built libraries)"
+    echo "  --deb, -deb PATH Explicit path to the ocio DEB package for inspection (required)"
+    echo "  --bin PATH       Optional: explicit path to the ocio binary for inspection."
+    echo "                     By default the binary is extracted from the --deb package."
     echo "  -p, --pause      Pause and wait for [Enter] before executing each demo command"
     echo "  -d, --dry-run    Dry-run mode: only print commands without executing them"
     echo "  -h, --help       Show this help message"
+    echo ""
+    echo "Note: the dpkg-shlibdeps mechanism (success + failure mode) is demonstrated by"
+    echo "packaging/deb/build-deb.sh --with-shared, not by this script."
     exit 0
 }
 
@@ -69,18 +71,6 @@ while [ $# -gt 0 ]; do
             BINARY_CANDIDATE="${1#--bin=}"
             shift
             ;;
-        --bin-shared)
-            if [ $# -lt 2 ] || [ -z "$2" ]; then
-                echo "Error: --bin-shared requires a path argument" >&2
-                exit 1
-            fi
-            BINARY_SHARED_CANDIDATE="$2"
-            shift 2
-            ;;
-        --bin-shared=*)
-            BINARY_SHARED_CANDIDATE="${1#--bin-shared=}"
-            shift
-            ;;
         -p|--pause)
             PAUSE_MODE=true
             shift
@@ -104,7 +94,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# All targets must be provided explicitly: no auto-discovery.
+# --deb is the only required input. The binary for inspection is, by default,
+# extracted from the .deb itself (dpkg-deb -x), so no pre-built binary is needed.
+# An explicit --bin overrides the extracted copy.
 # In dry-run mode the candidates are optional: the demo prints the commands it
 # would run without touching the filesystem, so missing files are tolerated.
 if [ -z "${DEB_CANDIDATE}" ] && [ "${DRY_RUN}" = false ]; then
@@ -112,21 +104,10 @@ if [ -z "${DEB_CANDIDATE}" ] && [ "${DRY_RUN}" = false ]; then
     exit 1
 fi
 
-if [ -z "${BINARY_CANDIDATE}" ] && [ "${DRY_RUN}" = false ]; then
-    echo "Error: --bin is required. Pass the path to a compiled ocio binary (e.g. build-debian-static/bin/ocio)." >&2
-    exit 1
-fi
-
-if [ -z "${BINARY_SHARED_CANDIDATE}" ] && [ "${DRY_RUN}" = false ]; then
-    echo "Error: --bin-shared is required. Pass a shared-raylib ocio binary (e.g. build-debian-shared/bin/ocio)." >&2
-    exit 1
-fi
-
 if [ "${DRY_RUN}" = true ]; then
     # Dry-run: use the provided paths as-is (no existence check, no canonicalization).
     : "${DEB_CANDIDATE:=./dist/ocio_0.1.0_amd64.deb}"
-    : "${BINARY_CANDIDATE:=./build-debian-static/bin/ocio}"
-    : "${BINARY_SHARED_CANDIDATE:=./build-debian-shared/bin/ocio}"
+    : "${BINARY_CANDIDATE:=<extracted from ${DEB_CANDIDATE}>}"
 else
     DEB_CANDIDATE="$(cd "$(dirname "${DEB_CANDIDATE}")" && pwd)/$(basename "${DEB_CANDIDATE}")"
     if [ ! -f "${DEB_CANDIDATE}" ]; then
@@ -134,16 +115,28 @@ else
         exit 1
     fi
 
-    BINARY_CANDIDATE="$(cd "$(dirname "${BINARY_CANDIDATE}")" && pwd)/$(basename "${BINARY_CANDIDATE}")"
-    if [ ! -f "${BINARY_CANDIDATE}" ]; then
-        echo "Error: --bin file does not exist: '${BINARY_CANDIDATE}'" >&2
-        exit 1
-    fi
-
-    BINARY_SHARED_CANDIDATE="$(cd "$(dirname "${BINARY_SHARED_CANDIDATE}")" && pwd)/$(basename "${BINARY_SHARED_CANDIDATE}")"
-    if [ ! -f "${BINARY_SHARED_CANDIDATE}" ]; then
-        echo "Error: --bin-shared file does not exist: '${BINARY_SHARED_CANDIDATE}'" >&2
-        exit 1
+    if [ -n "${BINARY_CANDIDATE}" ]; then
+        # Explicit --bin override: canonicalize and verify.
+        BINARY_CANDIDATE="$(cd "$(dirname "${BINARY_CANDIDATE}")" && pwd)/$(basename "${BINARY_CANDIDATE}")"
+        if [ ! -f "${BINARY_CANDIDATE}" ]; then
+            echo "Error: --bin file does not exist: '${BINARY_CANDIDATE}'" >&2
+            exit 1
+        fi
+    else
+        # Default: extract the binary from the .deb into a temp dir.
+        if ! command -v dpkg-deb >/dev/null 2>&1; then
+            echo "Error: dpkg-deb is not installed; cannot extract the binary from the .deb." >&2
+            echo "       Install dpkg, or pass an explicit --bin path." >&2
+            exit 1
+        fi
+        EXTRACT_DIR="$(mktemp -d /tmp/demo-deb-extract.XXXXXX)"
+        trap 'rm -rf "${EXTRACT_DIR}"' EXIT
+        dpkg-deb -x "${DEB_CANDIDATE}" "${EXTRACT_DIR}"
+        BINARY_CANDIDATE="${EXTRACT_DIR}/usr/bin/ocio"
+        if [ ! -f "${BINARY_CANDIDATE}" ]; then
+            echo "Error: could not find usr/bin/ocio inside ${DEB_CANDIDATE}." >&2
+            exit 1
+        fi
     fi
 fi
 
@@ -223,7 +216,6 @@ fi
 
 echo -e "DEB Target       : ${DEB_CANDIDATE}"
 echo -e "Binary Target    : ${BINARY_CANDIDATE}"
-echo -e "Shared-Raylib Bin: ${BINARY_SHARED_CANDIDATE}"
 
 # -----------------------------------------------------------------------------
 # Tool Requirements & Inspection Capability
@@ -285,17 +277,19 @@ if [ "${PAUSE_MODE}" = true ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Section 1: Binary Inspection & dpkg-shlibdeps Mechanism
+# Section 1: Binary Inspection (read-only)
 # -----------------------------------------------------------------------------
-banner "Section 1: Binary Inspection & dpkg-shlibdeps Mechanism"
+banner "Section 1: Binary Inspection (read-only)"
 echo "Explanation: Linux binaries record their direct shared library dependencies"
-echo "in DT_NEEDED tags. dpkg-shlibdeps reads those tags and maps every SONAME to a"
-echo "(package, version) pair using the *.shlibs files of installed packages."
-echo "The mechanism in four steps:"
-echo "  1. readelf -d    : what the binary asks for (DT_NEEDED)"
-echo "  2. *.shlibs      : the lookup database (one line per SONAME)"
-echo "  3. dpkg-shlibdeps: the scan (needs a debian/control in the working tree)"
-echo "  4. failure mode  : a SONAME with no shlibs entry aborts the build"
+echo "in DT_NEEDED tags. We inspect the ocio binary (extracted from the .deb)"
+echo "with three read-only tools to see what it asks for at link time:"
+echo "  1. file     : format and architecture"
+echo "  2. ldd      : resolved dynamic linker dependencies"
+echo "  3. readelf  : the raw DT_NEEDED entries"
+echo ""
+echo "How these DT_NEEDED entries become the package's Depends field (dpkg-shlibdeps,"
+echo "including the failure mode for source-built libraries) is demonstrated by"
+echo "packaging/deb/build-deb.sh --with-shared, not by this script."
 
 if [ "${HAVE_FILE}" = true ] || [ "${DRY_RUN}" = true ]; then
     demo_cmd "file \"${BINARY_CANDIDATE}\"" "Inspecting binary format and architecture:"
@@ -308,33 +302,10 @@ fi
 
 if [ "${HAVE_DPKG_SHLIBDEPS}" = true ] || [ "${DRY_RUN}" = true ]; then
     demo_cmd "readelf -d \"${BINARY_CANDIDATE}\" | grep NEEDED" \
-        "Step 1 - What the binary asks for (DT_NEEDED entries):" \
-        "  ${DIM}These SONAMEs are the input to dpkg-shlibdeps.${RESET}"
-
-    demo_cmd "ls /var/lib/dpkg/info/*.shlibs | head -10" \
-        "Step 2a - The lookup database: every library package ships a *.shlibs file:" \
-        "  ${DIM}One file per package, one line per SONAME it provides.${RESET}"
-
-    demo_cmd "cat /var/lib/dpkg/info/libc6:amd64.shlibs" \
-        "Step 2b - The libc6 shlibs table (libtool name + ABI version -> package + version):" \
-        "  ${DIM}dpkg-shlibdeps converts libm.so.6 -> 'libm 6' before the lookup.${RESET}"
-
-    SHLIB_TEST_DIR="$(mktemp -d /tmp/demo-shlibdeps.XXXXXX)"
-    trap 'rm -rf "${SHLIB_TEST_DIR}"' EXIT
-
-    demo_cmd "mkdir -p \"${SHLIB_TEST_DIR}/debian/ocio/usr/bin\" && cp \"${SCRIPT_DIR}/../deb/skeleton/DEBIAN/control\" \"${SHLIB_TEST_DIR}/debian/control\" && cp \"${BINARY_CANDIDATE}\" \"${SHLIB_TEST_DIR}/debian/ocio/usr/bin/ocio\"" \
-        "Step 3a - Staging: dpkg-shlibdeps requires a debian/control in the working tree:" \
-        "  ${DIM}Even with -O on a bare binary, the control file is mandatory.\n  We stage the binary in a temporary FHS skeleton (the same layout build-deb.sh uses).${RESET}"
-
-    demo_cmd "cd \"${SHLIB_TEST_DIR}\" && dpkg-shlibdeps -O debian/ocio/usr/bin/ocio" \
-        "Step 3b - The scan: DT_NEEDED -> shlibs lookup -> substitution variable:" \
-        "  ${DIM}Output: shlibs:Depends=libc6 (>= ...).\n  This is the value that goes into debian/control as \${shlibs:Depends}.\n  Note: the version floor comes from the .symbols file when present (finer than .shlibs).${RESET}"
-
-    demo_cmd "cd \"${SHLIB_TEST_DIR}\" && cp \"${BINARY_SHARED_CANDIDATE}\" debian/ocio/usr/bin/ocio-shared && dpkg-shlibdeps -O debian/ocio/usr/bin/ocio-shared" \
-        "Step 4 - Failure mode: a SONAME with no shlibs entry (source-built library):" \
-        "  ${DIM}Expected: 'error: no dependency information found for .../libraylib.so.550'.\n  Neither -e nor -x skips the lookup. The only fixes: ship a libraylib550\n  package with its own .shlibs file, or do not link the library.${RESET}"
+        "The raw DT_NEEDED entries (what the binary asks for at link time):" \
+        "  ${DIM}These SONAMEs are what dpkg-shlibdeps would resolve to package dependencies.\n  See build-deb.sh Step 3 / Step 3b for that mechanism.${RESET}"
 else
-    skip "dpkg-shlibdeps is not available (package: dpkg-dev). Skipping the mechanism demo."
+    skip "readelf (binutils) is not available. Skipping DT_NEEDED inspection."
 fi
 
 # -----------------------------------------------------------------------------
@@ -355,7 +326,7 @@ if [ -n "${DEB_CANDIDATE}" ]; then
 
     if [ "${HAVE_AR}" = true ] || [ "${DRY_RUN}" = true ]; then
         demo_cmd "ar -t \"${DEB_CANDIDATE}\"" "Listing internal Unix ar archive members:" \
-            "  ${DIM}Notice the three canonical components: debian-binary, control.tar.*, data.tar.*.${RESET}"
+            "  ${DIM}ar is the Unix archive tool (from binutils). -t (table) lists member names\n  without extracting. A .deb is just an ar archive — no proprietary format.\n  Notice the three canonical components: debian-binary, control.tar.*, data.tar.*.${RESET}"
     else
         skip "'ar' is not available (package: binutils). Skipping member listing."
     fi
@@ -409,25 +380,48 @@ fi
 # -----------------------------------------------------------------------------
 # Section 5: Installed Verification & Integrity Audit
 # -----------------------------------------------------------------------------
-banner "Section 5: Installed Verification & Integrity Audit"
+banner "Section 5: Install, Verify & Disk Space Audit"
 
-if [ "${OCIO_INSTALLED}" = true ] || [ "${DRY_RUN}" = true ]; then
-    OCIO_BIN="$(command -v ocio 2>/dev/null || echo /usr/bin/ocio)"
-    if [ "${HAVE_LDD}" = true ] || [ "${DRY_RUN}" = true ]; then
-        demo_cmd "ldd \"${OCIO_BIN}\"" "Inspecting installed binary dynamic linker paths (ldd):"
-    fi
+# Pre-install disk space estimate from package metadata (apt index).
+if [ "${HAVE_APT_GET}" = true ] || [ "${DRY_RUN}" = true ]; then
+    demo_cmd "apt-get update" \
+        "Refreshing the apt package index (needed for apt-cache show lookups)."
 
-    if [ "${HAVE_DPKG}" = true ] || [ "${DRY_RUN}" = true ]; then
-        demo_cmd "dpkg --verify ocio" "Auditing installed files against DEBIAN/md5sums (dpkg --verify):" \
-            "  ${GREEN}All installed files intact and verified against package md5sums checksums.${RESET}"
-    fi
+    DISK_ESTIMATE_CMD="apt-get install -s \"${DEB_CANDIDATE}\" 2>/dev/null | grep '^Inst' | sed 's/Inst //; s/ (.*//' | while read -r pkg; do apt-cache show \"\$pkg\" 2>/dev/null | grep '^Installed-Size:' | awk '{print \$2}'; done | awk '{s+=\$1} END {printf \"%.1f MiB (metadata estimate)\n\", s/1024}'"
+    demo_cmd "${DISK_ESTIMATE_CMD}" \
+        "Estimating disk space from package metadata (pre-install, no install needed):" \
+        "  ${DIM}Sums Installed-Size from the apt package index for all packages in the\n  dependency closure. Close to APT own 'additional disk space' estimate.\n  Does not require the packages to be installed.${RESET}"
+fi
+
+if [ "${OCIO_INSTALLED}" = true ]; then
+    info "ocio is already installed — skipping install, proceeding to verification."
+elif [ "${DRY_RUN}" = true ]; then
+    demo_cmd "apt-get update && apt-get install -y \"${DEB_CANDIDATE}\"" \
+        "Installing ocio via APT (would resolve dependencies and unpack the .deb)."
 else
-    skip "ocio is not installed on this system."
-    echo -e "${DIM}Steps like 'ldd /usr/bin/ocio' and 'dpkg --verify ocio' only apply when the package${RESET}"
-    echo -e "${DIM}has been installed to the host root. This script does not perform installations.${RESET}"
-    echo ""
-    echo -e "  ${CYAN}To install ocio and enable the post-installation audit step, run:${RESET}"
-    print_command_box "apt-get update && apt-get install -y \"${DEB_CANDIDATE:-./dist/ocio_0.1.0_amd64.deb}\""
+    demo_cmd "apt-get update && apt-get install -y \"${DEB_CANDIDATE}\"" \
+        "Installing ocio via APT (resolves dependencies, unpacks, and configures)." \
+        "  ${DIM}Note the After-this-operation line in the output above - APT\n  authoritative estimate (accounts for shared files and already-present\n  packages). Compare with the metadata estimate above.${RESET}"
+fi
+
+OCIO_BIN="$(command -v ocio 2>/dev/null || echo /usr/bin/ocio)"
+if [ "${HAVE_LDD}" = true ] || [ "${DRY_RUN}" = true ]; then
+    demo_cmd "ldd \"${OCIO_BIN}\"" "Inspecting installed binary dynamic linker paths (ldd):" \
+        "  ${DIM}The binary is now at /usr/bin/ocio. ldd confirms all shared libraries\n  resolve against the system paths (libc, libm).${RESET}"
+fi
+
+if [ "${HAVE_DPKG}" = true ] || [ "${DRY_RUN}" = true ]; then
+    demo_cmd "dpkg --verify ocio" "Auditing installed files against DEBIAN/md5sums (dpkg --verify):" \
+        "  ${GREEN}All installed files intact and verified against package md5sums checksums.${RESET}"
+fi
+
+demo_cmd "ocio --version" "Running the installed binary to confirm it works:"
+
+# Post-install: measure actual on-disk usage (block allocation).
+if [ "${HAVE_DPKG}" = true ] || [ "${DRY_RUN}" = true ]; then
+    demo_cmd "apt-get install -s \"${DEB_CANDIDATE}\" 2>/dev/null | grep '^Inst' | sed 's/Inst //; s/ (.*//' | xargs dpkg -L 2>/dev/null | xargs du -sc 2>/dev/null | tail -1" \
+        "Measuring actual on-disk usage (du on all files owned by ocio + deps):" \
+        "  ${DIM}This is the real filesystem block allocation (4 KiB granularity + directory\n  inodes). Higher than the APT estimate because du counts block overhead for\n  hundreds of small shared library files (Mesa DRI, LLVM, X11).${RESET}"
 fi
 
 # -----------------------------------------------------------------------------

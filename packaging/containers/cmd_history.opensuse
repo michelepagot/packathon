@@ -33,6 +33,13 @@ strings dist/cmake/ocio | grep -E "^GLIBC_2\." | sort -V | tail -n 5
 # === Vanilla Walkthrough: Step-by-Step Dependency Resolution ===
 zypper in libglvnd
 
+# === Demo Scripts (all formats) ===
+./packaging/rpm/demo-rpm.sh --dry-run
+./packaging/deb/demo-deb.sh --dry-run
+./packaging/appimage/demo-appimage.sh --dry-run
+./packaging/flatpak/demo-flatpak.sh --dry-run
+./packaging/flatpak/demo-flatpak.sh --pause
+
 # === Route 1: RPM Dissection & Verification ===
 zypper in -y binutils rpm
 file dist/ocio-0.1.0-1.x86_64.rpm
@@ -89,6 +96,7 @@ ls -la squashfs-root
 objdump -T squashfs-root/usr/local/bin/ocio | grep -E "GLIBC_2\." | sort -V | tail -n 5
 
 # === Route 3: Flatpak & Sandbox Dissection ===
+zypper in flatpak
 flatpak install --user -y --noninteractive --no-deps --no-related dist/ocio.flatpak
 flatpak info org.packathon.ocio
 flatpak info --show-deps org.packathon.ocio
@@ -100,3 +108,15 @@ flatpak install --user -y https://michelepagot.github.io/packathon/org.packathon
 flatpak run --command=sh org.packathon.ocio
 flatpak run --command=ldd org.packathon.ocio /app/bin/ocio
 flatpak run --nodevice=dri --nosocket=x11 org.packathon.ocio
+
+# === Flatpak Remote Scope Quirk (openSUSE: no default remote) ===
+flatpak install --user -y --noninteractive dist/ocio.flatpak
+flatpak remotes
+rpm -ql flatpak | grep -i remote
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak remotes
+flatpak install --user -y --noninteractive dist/ocio.flatpak
+flatpak remote-delete flathub
+flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user -y --noninteractive dist/ocio.flatpak
+flatpak uninstall --user -y org.packathon.ocio

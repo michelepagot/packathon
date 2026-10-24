@@ -89,6 +89,7 @@ esac
 demo_cmd "mkdir -p \"${OUTPUT_DIR}\"" "Ensuring the dist/ output directory exists."
 
 echo "=== 1. Checking Flatpak SDK/Runtime (${BRANCH}) ==="
+say "flatpak-builder compiles the app inside a sandbox that uses the SDK (build tools) and links against the Runtime (libraries). Both must be installed for the branch declared in the manifest."
 demo_cmd "flatpak info org.freedesktop.Platform//${BRANCH} && flatpak info org.freedesktop.Sdk//${BRANCH}" \
     "Verifying the Flatpak runtime and SDK for branch ${BRANCH} are installed."
 if [ "${DRY_RUN}" = false ] && \
@@ -104,10 +105,12 @@ fi
 echo "SDK and Runtime ${BRANCH} found."
 
 echo "=== 2. Building application with flatpak-builder ==="
+say "flatpak-builder reads the manifest, sets up an ostree-based build directory, compiles the app inside the SDK sandbox, and exports the result to an ostree repo."
 demo_cmd "flatpak-builder --force-clean --disable-rofiles-fuse --state-dir=\"${STATE_DIR}\" --repo=\"${REPO_DIR}\" \"${BUILD_DIR}\" \"${MANIFEST}\"" \
     "Building the application inside the Flatpak SDK sandbox."
 
 echo "=== 3. Exporting single-file Flatpak bundle ==="
+say "A .flatpak bundle is a single-file ostree repo that can be installed with 'flatpak install'. It contains the app but not the runtime (the runtime is pulled separately from a remote)."
 demo_cmd "flatpak build-bundle \"${REPO_DIR}\" \"${BUNDLE}\" org.packathon.ocio" \
     "Exporting the built app as a single-file .flatpak bundle."
 echo "App bundle: ${BUNDLE}"

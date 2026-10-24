@@ -274,7 +274,7 @@ Depends: ${shlibs:Depends}, libgl1, libx11-6</code></pre>
         A narrated, step-by-step demo of this mechanism (including the source-built library
         failure mode) is provided by:
       </p>
-      <pre><code>$ packaging/packator.sh debian builder packaging/demo/demo-deb.sh --bin /path/to/ocio --deb /path/to/ocio.deb</code></pre>
+      <pre><code>$ packaging/packator.sh debian builder packaging/deb/build-deb.sh --with-shared --pause</code></pre>
 
       <h2>5. Repository &amp; Package Manager Operations</h2>
       <p>Commands for dependency resolution and package operations across openSUSE, Fedora, and Debian:</p>

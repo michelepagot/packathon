@@ -62,11 +62,13 @@ fi
 
 pause_prompt "==> Setting up clean RPM build tree in ${RPM_TOPDIR}... Press [Enter] to continue (or Ctrl+C to stop)... "
 echo "==> Setting up clean RPM build tree in ${RPM_TOPDIR}..."
+say "rpmbuild expects a standard top-level directory with BUILD/, SOURCES/, SPECS/, RPMS/, SRPMS/, and BUILDROOT/ subdirectories. We create a clean one so no stale artifacts interfere."
 rm -rf "${RPM_TOPDIR}"
 mkdir -p "${RPM_TOPDIR}"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 
 pause_prompt "==> Creating source tarball ${NAME}-${VERSION}.tar.gz... Press [Enter] to continue (or Ctrl+C to stop)... "
 echo "==> Creating source tarball ${NAME}-${VERSION}.tar.gz..."
+say "rpmbuild unpacks the source tarball into BUILD/ during the %prep phase. The tarball must be named <name>-<version>.tar.gz and contain the project at its top level."
 tar --exclude='.git' \
     --exclude='build*' \
     --exclude='dist' \
@@ -76,6 +78,7 @@ tar --exclude='.git' \
 
 pause_prompt "==> Copying spec file... Press [Enter] to continue (or Ctrl+C to stop)... "
 echo "==> Copying spec file..."
+say "The spec file is the recipe: it tells rpmbuild how to unpack, configure, build, and install the package, and declares metadata (name, version, dependencies, file list)."
 cp "${SCRIPT_DIR}/ocio.spec" "${RPM_TOPDIR}/SPECS/"
 
 # Stage raylib source tarball if vendored raylib is requested, or if the system
@@ -93,6 +96,7 @@ fi
 
 pause_prompt "==> Running rpmbuild (Binary & Source RPMs)... Press [Enter] to continue (or Ctrl+C to stop)... "
 echo "==> Running rpmbuild (Binary & Source RPMs)..."
+say "rpmbuild -ba runs the full build: %prep (unpack), %build (compile), %install (stage into BUILDROOT), then packages the binary RPM and source RPM. It auto-detects shared library dependencies from the ELF binary."
 rpmbuild -ba \
     --define "_topdir ${RPM_TOPDIR}" \
     "${BUILD_ARGS[@]}" \
@@ -100,6 +104,7 @@ rpmbuild -ba \
 
 pause_prompt "==> Collecting generated RPMs into dist/... Press [Enter] to continue (or Ctrl+C to stop)... "
 echo "==> Collecting generated RPMs into dist/..."
+say "rpmbuild places output in RPMS/<arch>/ and SRPMS/. We copy them to dist/ for easy access."
 mkdir -p "${REPO_ROOT}/dist"
 cp -f "${RPM_TOPDIR}/RPMS"/*/*.rpm "${REPO_ROOT}/dist/"
 cp -f "${RPM_TOPDIR}/SRPMS"/*.src.rpm "${REPO_ROOT}/dist/"

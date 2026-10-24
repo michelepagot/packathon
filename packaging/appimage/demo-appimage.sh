@@ -217,11 +217,6 @@ if [ -n "${FUSERMOUNT_BIN}" ]; then
     fi
 fi
 
-IS_CONTAINER=false
-if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
-    IS_CONTAINER=true
-fi
-
 if [ "${HAVE_DEV_FUSE}" = true ] && [ "${DEV_FUSE_WRITABLE}" = true ] && [ -n "${FUSERMOUNT_BIN}" ]; then
     echo -e "FUSE Subsystem   : ${GREEN}READY${RESET} (/dev/fuse rw, ${FUSERMOUNT_BIN##*/} available)"
     echo -e "FUSE Binary      : ${BOLD}${FUSERMOUNT_BIN}${RESET} (${FUSERMOUNT_VERSION:-version unknown}, mode: ${FUSE_CAPABILITIES:-standard})"
@@ -229,19 +224,9 @@ elif [ -z "${FUSERMOUNT_BIN}" ]; then
     echo -e "FUSE Subsystem   : ${RED}NOT READY${RESET} (fusermount missing on \$PATH)"
     echo -e "  ${RED}--> Error: No suitable fusermount binary found on the \$PATH${RESET}"
     echo -e "  ${DIM}AppImage runtime relies on fusermount/fusermount3 to mount SquashFS without root.${RESET}"
-    if [ "${HAVE_DEV_FUSE}" = false ]; then
-        echo -e "  ${DIM}Additionally, /dev/fuse is missing (pass --device /dev/fuse in containers).${RESET}"
-    fi
-    if [ "${IS_DEBIAN}" = true ]; then
-        echo -e "  ${YELLOW}Notice:${RESET} Required command from packaging/containers/cmd_history.debian:"
-        echo -e "    ${BOLD}apt-get install -y fuse3${RESET}"
-    fi
 elif [ "${HAVE_DEV_FUSE}" = false ]; then
     echo -e "FUSE Subsystem   : ${RED}NOT READY${RESET} (/dev/fuse missing)"
     echo -e "  ${RED}--> Cannot mount AppImage, please check your FUSE setup.${RESET}"
-    if [ "${IS_CONTAINER}" = true ]; then
-        echo -e "  ${DIM}Container environment detected. Start container with: --device /dev/fuse (and --privileged or --cap-add SYS_ADMIN).${RESET}"
-    fi
 elif [ "${DEV_FUSE_WRITABLE}" = false ]; then
     echo -e "FUSE Subsystem   : ${RED}NOT READY${RESET} (/dev/fuse is not writable by current user)"
     echo -e "  ${RED}--> Cannot mount AppImage, please check your FUSE setup.${RESET}"
@@ -272,6 +257,16 @@ if command -v unsquashfs >/dev/null 2>&1; then HAVE_UNSQUASHFS=true; fi
 if command -v readelf >/dev/null 2>&1; then HAVE_READELF=true; fi
 if command -v strings >/dev/null 2>&1; then HAVE_STRINGS=true; fi
 if command -v df >/dev/null 2>&1; then HAVE_DF=true; fi
+# Check for the GPU driver stack: libGL.so.1 (from libgl1) is what GLFW loads.
+# ldconfig -p may not have an updated cache in minimal containers, so also check
+# the file on disk.
+if ldconfig -p 2>/dev/null | grep -q "libGL.so.1" || \
+   [ -f /usr/lib/x86_64-linux-gnu/libGL.so.1 ] || \
+   [ -f /usr/lib64/libGL.so.1 ]; then
+    HAVE_LIBGLVND=true
+else
+    HAVE_LIBGLVND=false
+fi
 
 print_tool_status() {
     local tool="$1"
@@ -290,6 +285,7 @@ print_tool_status "xxd"         "${HAVE_XXD}"         "xxd"                     
 print_tool_status "unsquashfs"  "${HAVE_UNSQUASHFS}"  "squashfs-tools / squashfs" "SquashFS superblock & tree inspection"
 print_tool_status "readelf"     "${HAVE_READELF}"     "binutils"                  "Static-pie header & DT_NEEDED audit"
 print_tool_status "strings"     "${HAVE_STRINGS}"     "binutils"                  "GLIBC symbol baseline extraction"
+print_tool_status "libglvnd"    "${HAVE_LIBGLVND}"    "libglvnd"                  "OpenGL dispatch library (host graphics stack)"
 print_tool_status "fusermount"  "${HAVE_ANY_FUSERMOUNT}" "fuse3 / fuse"           "FUSE userspace mount helper"
 print_tool_status "df"          "${HAVE_DF}"          "coreutils"                 "Mounted virtual filesystem metrics"
 
@@ -317,28 +313,22 @@ if [ "${HAVE_ANY_FUSERMOUNT}" = false ]; then
     MISSING_DEB+=("fuse3")
     MISSING_RPM+=("fuse3")
 fi
+if [ "${HAVE_LIBGLVND}" = false ]; then
+    MISSING_DEB+=("libglvnd0" "libgl1" "libgl1-mesa-dri")
+    MISSING_RPM+=("libglvnd" "Mesa-dri")
+fi
 
 if [ ${#MISSING_DEB[@]} -gt 0 ]; then
     echo ""
     info "Missing inspection/runtime tools detected! Recommended commands from packaging/containers/cmd_history.debian:"
     if [ "${IS_DEBIAN}" = true ]; then
         echo -e "  ${BOLD}apt-get update${RESET}"
-        echo -e "  ${BOLD}apt-get install file xxd squashfs-tools binutils${RESET}"
-        echo -e "  ${BOLD}apt-get install -y fuse3${RESET}"
+        echo -e "  ${BOLD}apt-get install -y ${MISSING_DEB[*]}${RESET}"
     elif [ "${IS_OPENSUSE}" = true ]; then
         info "Missing inspection/runtime tools detected! Recommended commands from packaging/containers/cmd_history.opensuse:"
-        echo -e "  ${BOLD}zypper in -y binutils rpm squashfs fuse3${RESET}"
+        echo -e "  ${BOLD}zypper in -y ${MISSING_RPM[*]}${RESET}"
     else
-        echo -e "  ${BOLD}apt-get install file xxd squashfs-tools binutils fuse3${RESET}"
-    fi
-
-    if [ "${HAVE_ANY_FUSERMOUNT}" = false ]; then
-        echo ""
-        echo -e "  ${RED}${BOLD}Error: No suitable fusermount binary found on the \$PATH${RESET}"
-        echo -e "  ${DIM}AppImage runtime relies on fusermount/fusermount3 to mount SquashFS without root.${RESET}"
-        if [ "${IS_DEBIAN}" = true ]; then
-            echo -e "  ${YELLOW}Fix:${RESET} Install fuse3 with: ${BOLD}apt-get install -y fuse3${RESET}"
-        fi
+        echo -e "  ${BOLD}apt-get install -y ${MISSING_DEB[*]}${RESET}"
     fi
 fi
 
@@ -478,7 +468,7 @@ if [ -n "${APPIMAGE_CANDIDATE}" ]; then
     elif [ "${HAVE_DEV_FUSE}" = false ]; then
         skip "FUSE is not available on this host (/dev/fuse missing). Cannot perform live FUSE mount."
         echo -e "  ${RED}${BOLD}Cannot mount AppImage, please check your FUSE setup.${RESET}"
-        echo -e "  ${YELLOW}Remedy:${RESET} In container environments, pass --device /dev/fuse (and --privileged or --cap-add SYS_ADMIN)."
+        echo -e "  ${YELLOW}Remedy:${RESET} Ensure /dev/fuse is accessible and fuse3 is installed."
     else
         substep "Executing live background mount with --appimage-mount:"
         MOUNT_TMP_OUT="$(mktemp)"
@@ -541,11 +531,62 @@ echo "but intentionally leaves the host graphics stack and C library unbundled:"
 echo "- Bundled inside AppImage : ocio binary, assets, raylib (when shared)"
 echo "- Delegated to Host       : Linux kernel, glibc, libglvnd / libOpenGL.so.0, GPU drivers"
 
+substep "The Portability Boundary, Demonstrated:"
+echo "The box ships the app but delegates the graphics stack to the host."
+echo "On a minimal host (e.g. a vanilla Tumbleweed system without a desktop),"
+echo "the delegation fails: the host has no libOpenGL.so.0, so the app dies at"
+echo "load time, before main() is ever reached."
+if [ -n "${APPIMAGE_CANDIDATE}" ]; then
+    if [ "${HAVE_LIBGLVND}" = true ]; then
+        demo_cmd "\"${APPIMAGE_CANDIDATE}\"" \
+            "Running the AppImage on this host." \
+            "  ${GREEN}${BOLD}This host has the full graphics stack (libOpenGL.so.0 present).${RESET}\n  ${DIM}The AppImage runs successfully. On a minimal host without the\n  graphics stack, you would see:\n  error while loading shared libraries: libOpenGL.so.0: cannot open shared object file${RESET}"
+    else
+        demo_cmd "\"${APPIMAGE_CANDIDATE}\"" \
+            "Running the AppImage on this host." \
+            "  ${RED}${BOLD}Expected on a minimal host:${RESET}\n  ${BOLD}error while loading shared libraries: libOpenGL.so.0: cannot open shared object file: No such file or directory${RESET}\n  ${DIM}The box is right, the host is wrong: a bare system is not a desktop.\n  On a full desktop the same AppImage runs without any installation.${RESET}\n\n  ${YELLOW}Fix:${RESET} Install the graphics stack:\n"
+        if [ "${IS_DEBIAN}" = true ]; then
+            echo -e "    ${BOLD}apt-get install -y libglvnd0 libgl1 libgl1-mesa-dri${RESET}"
+            echo -e "    ${DIM}libglvnd0 provides the OpenGL dispatch layer (libGLdispatch.so.0);"
+            echo -e "    libgl1 provides libGL.so.1 (loaded by GLFW);"
+            echo -e "    libgl1-mesa-dri provides the Mesa GPU drivers (integrated/AMD/Intel).${RESET}"
+        elif [ "${IS_OPENSUSE}" = true ]; then
+            echo -e "    ${BOLD}zypper in -y libglvnd Mesa-dri${RESET}"
+            echo -e "    ${DIM}libglvnd provides the OpenGL dispatch layer; Mesa-dri provides the GPU drivers.${RESET}"
+        else
+            echo -e "    ${BOLD}Install libglvnd and a GPU driver (e.g. Mesa) for your distribution${RESET}"
+        fi
+    fi
+else
+    skip "No AppImage specified. Pass --appimage /path/to/ocio.AppImage to run it."
+fi
+
 substep "FUSE Troubleshooting & Payload Extraction:"
-echo "When running inside a container (Docker/Podman) or minimal environment without FUSE:"
-echo "1. Ensure /dev/fuse is passed to the container (--device /dev/fuse) and fuse3 is installed."
-echo "2. Payload Extraction (inspect files directly without FUSE):"
-print_command_box "./dist/ocio-x86_64.AppImage --appimage-extract && ./squashfs-root/AppRun"
+if [ -z "${FUSERMOUNT_BIN}" ]; then
+    echo "FUSE is NOT available on this host. The AppImage cannot mount its payload."
+    echo ""
+    echo -e "  ${RED}${BOLD}Expected error when running the AppImage:${RESET}"
+    echo -e "  ${BOLD}fuse: failed to access /dev/fuse: No such file or directory${RESET}"
+    echo ""
+    echo ""
+    echo "Alternatively, extract the payload without FUSE:"
+    if [ -n "${APPIMAGE_CANDIDATE}" ]; then
+        demo_cmd "\"${APPIMAGE_CANDIDATE}\" --appimage-extract" \
+            "Extracting the SquashFS payload to ./squashfs-root without FUSE."
+        demo_cmd "./squashfs-root/AppRun" \
+            "Running the extracted payload directly."
+    fi
+else
+    echo "FUSE is available on this host. The AppImage can mount its payload normally."
+    echo ""
+    echo "To inspect the payload without FUSE (works on any host):"
+    if [ -n "${APPIMAGE_CANDIDATE}" ]; then
+        demo_cmd "\"${APPIMAGE_CANDIDATE}\" --appimage-extract" \
+            "Extracting the SquashFS payload to ./squashfs-root without FUSE."
+        demo_cmd "./squashfs-root/AppRun" \
+            "Running the extracted payload directly."
+    fi
+fi
 
 # -----------------------------------------------------------------------------
 # Summary & Pedagogical Conclusion

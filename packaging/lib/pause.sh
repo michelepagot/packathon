@@ -34,6 +34,16 @@ else
     : "${RESET:=}"
 fi
 
+# say <msg>
+# Print a short plain-English "why" line before a group of commands.
+# Used by demo scripts to explain what is about to happen and why.
+say() {
+    local msg="${1:-}"
+    if [ -n "${msg}" ]; then
+        echo -e "  ${DIM}${msg}${RESET}"
+    fi
+}
+
 # pause_prompt <msg>
 # Print <msg> and wait for [Enter] when PAUSE_MODE=true. Reads from /dev/tty
 # when available so it works even if the script's stdin is redirected.
