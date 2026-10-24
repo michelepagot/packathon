@@ -49,7 +49,7 @@ RUN sed -i -e 's|http://download.opensuse.org|https://cdn.opensuse.org|g' \
            -e 's|https://download.opensuse.org|https://cdn.opensuse.org|g' /etc/zypp/repos.d/*.repo && \
     zypper --non-interactive refresh && \
     # awk seems an hidden dependency on fzf
-    zypper --non-interactive in --no-recommends fzf awk && \
+    zypper --non-interactive in --no-recommends fzf awk findutils && \
     zypper clean -a && \
     rm -rf /var/cache/zypp/*
 

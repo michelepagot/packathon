@@ -1,6 +1,7 @@
 # === Build Recipes ===
 packaging/build_ocio.sh
 packaging/deb/build-deb.sh
+packaging/deb/build-deb.sh --with-shared   # also builds build-debian-shared/ + demos the dpkg-shlibdeps failure mode
 packaging/appimage/build-appimage.sh
 packaging/flatpak/build-flatpak.sh
 
@@ -49,6 +50,13 @@ apt-get install -y --no-install-recommends libx11-6
 apt-get install -y --no-install-recommends libglx0
 apt-get install -y file xxd squashfs-tools binutils fuse3
 
+# === Demo Scripts (all formats) ===
+./packaging/rpm/demo-rpm.sh --dry-run
+./packaging/deb/demo-deb.sh --dry-run
+./packaging/appimage/demo-appimage.sh --dry-run
+./packaging/flatpak/demo-flatpak.sh --dry-run
+./packaging/flatpak/demo-flatpak.sh --pause
+
 # === Route 1: DEB Dissection & Verification ===
 file dist/ocio_0.1.0_amd64.deb
 ar -t dist/ocio_0.1.0_amd64.deb
@@ -74,8 +82,8 @@ dpkg-shlibdeps -O debian/ocio/usr/bin/ocio
 # Step 4: failure mode - source-built library with no shlibs entry
 cp build-debian-shared/bin/ocio debian/ocio/usr/bin/ocio-shared
 dpkg-shlibdeps -O debian/ocio/usr/bin/ocio-shared
-# Narrated demo of the full mechanism:
-packaging/demo/demo-deb.sh --deb dist/ocio_0.1.0_amd64.deb --bin build-debian-static/bin/ocio --bin-shared build-debian-shared/bin/ocio
+# Narrated demo (binary is extracted from the .deb; no --bin/--bin-shared needed):
+packaging/deb/demo-deb.sh --deb dist/ocio_0.1.0_amd64.deb
 
 # === Route 2: AppImage Mechanics ===
 # Shared-raylib A/B test: linuxdeploy (scans DT_NEEDED, bundles libraylib.so)
@@ -104,6 +112,7 @@ ls -la squashfs-root
 objdump -T squashfs-root/usr/local/bin/ocio | grep -E "GLIBC_2\." | sort -V | tail -n 5
 
 # === Route 3: Flatpak & Sandbox Dissection ===
+apt-get install -y flatpak
 flatpak install --user -y --noninteractive --no-deps --no-related dist/ocio.flatpak
 flatpak info org.packathon.ocio
 flatpak info --show-deps org.packathon.ocio

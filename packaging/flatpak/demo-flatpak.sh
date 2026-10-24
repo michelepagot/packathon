@@ -117,6 +117,60 @@ substep() {
     fi
 }
 
+# -----------------------------------------------------------------------------
+# System Environment & Tool Requirements
+# -----------------------------------------------------------------------------
+banner "System Environment & Tool Requirements"
+
+OS_NAME="Unknown"
+OS_ID="unknown"
+if [ -f /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    OS_NAME="${PRETTY_NAME:-$NAME}"
+    OS_ID="${ID:-unknown}"
+fi
+echo -e "Operating System : ${BOLD}${OS_NAME}${RESET} (ID: ${OS_ID})"
+
+HAVE_FLATPAK=false
+HAVE_FIND=false
+if command -v flatpak >/dev/null 2>&1; then HAVE_FLATPAK=true; fi
+if command -v find >/dev/null 2>&1; then HAVE_FIND=true; fi
+
+print_tool_status() {
+    local tool="$1" available="$2" pkg="$3" purpose="$4"
+    if [ "${available}" = true ]; then
+        echo -e "  - ${tool,-12} : ${GREEN}FOUND${RESET} (${purpose})"
+    else
+        echo -e "  - ${tool,-12} : ${YELLOW}MISSING${RESET} (needed for ${purpose}; package: ${BOLD}${pkg}${RESET})"
+    fi
+}
+
+print_tool_status "flatpak" "${HAVE_FLATPAK}" "flatpak"   "Flatpak runtime & bundle installation"
+print_tool_status "find"    "${HAVE_FIND}"    "findutils" "Bundle auto-discovery in dist/"
+
+if [ "${HAVE_FLATPAK}" = false ] && [ "${DRY_RUN}" = false ]; then
+    echo ""
+    echo -e "${YELLOW}[ERROR]${RESET} 'flatpak' is required. Install it with:"
+    if [[ "${OS_ID}" =~ ^(opensuse|sles) ]]; then
+        echo -e "  ${BOLD}zypper in -y flatpak${RESET}"
+    elif [[ "${OS_ID}" =~ ^(debian|ubuntu) ]]; then
+        echo -e "  ${BOLD}apt-get install -y flatpak${RESET}"
+    fi
+    exit 1
+fi
+
+if [ "${HAVE_FIND}" = false ] && [ "${DRY_RUN}" = false ]; then
+    echo ""
+    echo -e "${YELLOW}[ERROR]${RESET} 'find' is required for bundle auto-discovery. Install it with:"
+    if [[ "${OS_ID}" =~ ^(opensuse|sles) ]]; then
+        echo -e "  ${BOLD}zypper in -y findutils${RESET}"
+    elif [[ "${OS_ID}" =~ ^(debian|ubuntu) ]]; then
+        echo -e "  ${BOLD}apt-get install -y findutils${RESET}"
+    fi
+    exit 1
+fi
+
 banner "Flatpak Sandbox Dissection & The Permission Tax"
 echo -e "Bundle: ${BOLD}${BUNDLE_CANDIDATE}${RESET}"
 
@@ -131,8 +185,54 @@ fi
 # [1] Install the bundle into the user scope
 # -----------------------------------------------------------------------------
 banner "[1] Installing Flatpak bundle into user scope"
-demo_cmd "flatpak install --user -y --noninteractive --no-deps --no-related \"${BUNDLE_CANDIDATE}\"" \
-    "Installing the ocio bundle into the user's Flatpak scope (no system changes)."
+
+# First, demonstrate why a plain install fails: no remotes are configured.
+demo_cmd "flatpak install --user -y --noninteractive \"${BUNDLE_CANDIDATE}\"" \
+    "Attempting a plain install (expect failure: runtime dependency cannot be resolved)." \
+    "  ${DIM}The app requires org.freedesktop.Platform//25.08, but no flatpak remote is configured\n  to pull it from. openSUSE's flatpak package ships /etc/flatpak/remotes.d as an empty\n  directory — unlike Fedora, which ships a default flathub remote.${RESET}"
+
+# Prove the absence of remotes (openSUSE-specific: the package ships no default remote).
+demo_cmd "flatpak remotes" \
+    "Listing configured flatpak remotes (expect empty output on openSUSE)." \
+    "  ${DIM}Empty output confirms no remote is available to resolve the runtime dependency.${RESET}"
+
+if [[ "${OS_ID}" =~ ^(opensuse|sles) ]]; then
+    demo_cmd "rpm -ql flatpak | grep -i remote" \
+        "Inspecting the flatpak package for shipped remote files (openSUSE only)." \
+        "  ${DIM}Only /etc/flatpak/remotes.d (an empty directory) and man pages — no .flatpakrepo files.\n  This is why flatpak cannot auto-resolve the runtime: it has no remote to pull from.${RESET}"
+else
+    demo_cmd "dpkg -L flatpak 2>/dev/null | grep -i remote || echo '(no remote files shipped by the flatpak package)'" \
+        "Inspecting the flatpak package for shipped remote files (Debian/Ubuntu)." \
+        "  ${DIM}Like openSUSE, the Debian flatpak package ships no default remote.\n  /etc/flatpak/remotes.d is empty — flatpak cannot auto-resolve the runtime.${RESET}"
+fi
+
+# Demonstrate the scope quirk: a system-scope remote is invisible to user-scope installs.
+demo_cmd "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo" \
+    "Adding the Flathub remote to the SYSTEM scope (note: no --user flag)."
+
+demo_cmd "flatpak remotes" \
+    "Listing remotes: flathub appears under the system scope." \
+    "  ${DIM}The remote is configured, but it is in the system scope.${RESET}"
+
+demo_cmd "flatpak install --user -y --noninteractive \"${BUNDLE_CANDIDATE}\"" \
+    "Attempting user-scope install (expect failure: system remote is invisible to user scope)." \
+    "  ${DIM}Flatpak user-scope installs can only see user-scope remotes. The system-scope\n  flathub remote is invisible here, so the runtime dependency still cannot be resolved.\n  This is a common gotcha: remote scope must match install scope.${RESET}"
+
+# Clean up the system-scope remote and add it to the user scope instead.
+demo_cmd "flatpak remote-delete flathub" \
+    "Removing the system-scope flathub remote."
+
+demo_cmd "flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo" \
+    "Adding the Flathub remote to the USER scope (matches the --user install scope)."
+
+# Now install with dependency resolution (pulls the runtime from Flathub).
+demo_cmd "flatpak install --user -y --noninteractive \"${BUNDLE_CANDIDATE}\"" \
+    "Installing the ocio bundle with runtime dependency resolution." \
+    "  ${DIM}Flatpak now pulls org.freedesktop.Platform//25.08 from the user-scope Flathub\n  remote, then installs the app.${RESET}"
+
+# Show what got installed: name, app ID, and installed size.
+demo_cmd "flatpak list --columns=name,application,size" \
+    "Listing installed Flatpak apps (name, application ID, installed size)."
 
 # -----------------------------------------------------------------------------
 # [2] Inspect installed application metadata
@@ -154,7 +254,7 @@ demo_cmd "flatpak run --command=ldd org.packathon.ocio /app/bin/ocio" \
 # -----------------------------------------------------------------------------
 banner "[4] Demonstrating The Permission Tax (Namespace Isolation)"
 echo "--> Permissions declared in manifest finish-args: --socket=x11, --device=dri"
-echo "--> You can run an interactive shell inside the sandbox with:"
-print_command_box "flatpak run --command=sh org.packathon.ocio"
-echo "--> You can simulate hardware permission revocation with:"
-print_command_box "flatpak run --nodevice=dri --nosocket=x11 org.packathon.ocio"
+echo "--> Launching the app with its declared permissions (the GUI should appear):"
+demo_cmd "flatpak run org.packathon.ocio" \
+    "Running ocio with its full declared permissions (X11, DRI, pulseaudio)." \
+    "  ${DIM}The app launches with the finish-args from the manifest. If the window does not\n  appear, check that a display (X11/Wayland) is available and that the DRI device\n  is accessible. Close the window to return to the demo.${RESET}"

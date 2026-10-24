@@ -41,6 +41,7 @@ HELP_SCRIPTS := \
 
 # Scripts that accept --dry-run and complete without requiring build artifacts.
 DRYRUN_SCRIPTS := \
+    ./build_ocio.sh \
     ./rpm/demo-rpm.sh \
     ./appimage/demo-appimage.sh \
     ./deb/demo-deb.sh \

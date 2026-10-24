@@ -10,13 +10,16 @@
 #   4. Compute installed size and md5 checksums
 #   5. Assemble Debian package with dpkg-deb
 #
-# Usage: build-deb.sh [--mode frugal|cmake|debhelper] [--no-clean] [-p|--pause]
+# Usage: build-deb.sh [--mode frugal|cmake|debhelper] [--with-shared] [--no-clean] [-p|--pause]
 #   frugal       (default) low-level workflow staging files directly with cp
 #                and assembling package with dpkg-deb
 #   cmake        generates Debian package via CMake's CPack DEB generator
 #   debhelper    canonical source package workflow using debhelper toolchain
 #                (debian/rules, dh, dh_auto_configure, dh_auto_build,
 #                dh_auto_install, dh_shlibdeps, dh_gencontrol, dpkg-buildpackage)
+#   --with-shared  also build a shared-raylib ocio binary (build-debian-shared/)
+#                and demonstrate the dpkg-shlibdeps failure mode against it
+#                (Step 3b). Ignored in debhelper mode.
 #   --no-clean   do not remove intermediate staging files on exit
 #   -p, --pause  pause and wait for [Enter] before executing each command
 #                (each command is shown in a "Command to Run" box)
@@ -38,6 +41,7 @@ PACKAGE_NAME="ocio"
 MODE="frugal"
 export PAUSE_MODE=false
 NO_CLEAN=false
+WITH_SHARED=false
 usage() {
     sed -n '/^# Low-level binary packaging/,/^# ==\+/ { /^# ==\+/d; s/^# \{0,1\}//; p; }' "${BASH_SOURCE[0]}"
 }
@@ -45,6 +49,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --mode) MODE="${2:?--mode needs a value}"; shift 2 ;;
         --mode=*) MODE="${1#--mode=}"; shift ;;
+        --with-shared) WITH_SHARED=true; shift ;;
         --no-clean) NO_CLEAN=true; shift ;;
         -p|--pause) PAUSE_MODE=true; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -90,6 +95,9 @@ DIST_DIR="${DIST_DIR:-${REPO_ROOT}/dist}"
 # -----------------------------------------------------------------------------
 
 if [ "${MODE}" = "debhelper" ]; then
+    if [ "${WITH_SHARED}" = true ]; then
+        echo "Note: --with-shared is ignored in debhelper mode (the shared binary is a demo aid, not a package input)."
+    fi
     DEB_VERSION="$(dpkg-parsechangelog -l"${SCRIPT_DIR}/debian/changelog" -SVersion)"
     DEB_FILENAME="${PACKAGE_NAME}_${DEB_VERSION}_${ARCH}.deb"
     OUTPUT_DEB="${DIST_DIR}/${DEB_FILENAME}"
@@ -141,6 +149,7 @@ elif [ "${MODE}" = "cmake" ]; then
     BUILD_DIR="${BUILD_DIR:-${REPO_ROOT}/build-debian}"
 
     echo "==> Step 1: Ensuring binary is compiled..."
+    say "CPack needs the compiled binary. We build it with CMake first."
     if [ ! -f "${BUILD_DIR}/bin/ocio" ]; then
         demo_cmd "cmake -S \"${REPO_ROOT}\" -B \"${BUILD_DIR}\" -DCMAKE_BUILD_TYPE=Release" \
             "Configuring CMake build (Release) in ${BUILD_DIR}."
@@ -150,7 +159,22 @@ elif [ "${MODE}" = "cmake" ]; then
         echo "    Binary already exists at ${BUILD_DIR}/bin/ocio, skipping compile."
     fi
 
+    if [ "${WITH_SHARED}" = true ]; then
+        SHARED_BUILD_DIR="${SHARED_BUILD_DIR:-${REPO_ROOT}/build-debian-shared}"
+        echo "==> Step 1b: Building shared-raylib binary (--with-shared)..."
+        say "A second build with -DRAYLIB_SHARED=ON links raylib dynamically, so the binary carries a libraylib.so.550 DT_NEEDED entry. This is the input to the dpkg-shlibdeps failure-mode demo (Step 3b)."
+        if [ ! -f "${SHARED_BUILD_DIR}/bin/ocio" ]; then
+            demo_cmd "cmake -S \"${REPO_ROOT}\" -B \"${SHARED_BUILD_DIR}\" -DCMAKE_BUILD_TYPE=Release -DRAYLIB_SHARED=ON" \
+                "Configuring a second CMake build (Release, shared raylib) in ${SHARED_BUILD_DIR}."
+            demo_cmd "cmake --build \"${SHARED_BUILD_DIR}\" --config Release -j\"\$(nproc)\"" \
+                "Building the shared-raylib ocio binary with all available cores."
+        else
+            echo "    Shared binary already exists at ${SHARED_BUILD_DIR}/bin/ocio, skipping compile."
+        fi
+    fi
+
     echo "==> Step 2: Packaging DEB archive with CPack..."
+    say "CPack's DEB generator handles staging, shlibdeps, control, md5sums, and dpkg-deb in one call. This is the 'framework' alternative to the manual frugal workflow."
     demo_cmd "mkdir -p \"${DIST_DIR}\"" \
         "Ensuring the dist/ output directory exists."
 
@@ -205,39 +229,109 @@ else
         echo "    Binary already exists at ${BUILD_DIR}/bin/ocio, skipping compile."
     fi
 
+    if [ "${WITH_SHARED}" = true ]; then
+        SHARED_BUILD_DIR="${SHARED_BUILD_DIR:-${REPO_ROOT}/build-debian-shared}"
+        echo "==> Step 1b: Building shared-raylib binary (--with-shared)..."
+        say "A second build with -DRAYLIB_SHARED=ON links raylib dynamically, so the binary carries a libraylib.so.550 DT_NEEDED entry. This is the input to the dpkg-shlibdeps failure-mode demo (Step 3b)."
+        if [ ! -f "${SHARED_BUILD_DIR}/bin/ocio" ]; then
+            demo_cmd "cmake -S \"${REPO_ROOT}\" -B \"${SHARED_BUILD_DIR}\" -DCMAKE_BUILD_TYPE=Release -DRAYLIB_SHARED=ON" \
+                "Configuring a second CMake build (Release, shared raylib) in ${SHARED_BUILD_DIR}."
+            demo_cmd "cmake --build \"${SHARED_BUILD_DIR}\" --config Release -j\"\$(nproc)\"" \
+                "Building the shared-raylib ocio binary with all available cores."
+        else
+            echo "    Shared binary already exists at ${SHARED_BUILD_DIR}/bin/ocio, skipping compile."
+        fi
+    fi
+
     # -----------------------------------------------------------------------------
     # Step 2: Stage the payload into the Debian directory layout
     # -----------------------------------------------------------------------------
     echo "==> Step 2: Assembling minimal Debian directory layout in ${STAGE_DIR} (mode: frugal)..."
 
+    say "A .deb payload is a directory tree that mirrors the FHS. We build it by hand: copy the skeleton (DEBIAN/ metadata + empty usr/ dirs), then place each file where dpkg will install it."
+
     demo_cmd "mkdir -p \"${STAGE_DIR}\"" \
         "Creating the staging root directory."
-    demo_cmd "cp -r \"${SCRIPT_DIR}/skeleton/.\" \"${STAGE_DIR}/\" && mkdir -p \"${STAGE_DIR}/usr/bin\" && cp \"${BUILD_DIR}/bin/ocio\" \"${STAGE_DIR}/usr/bin/ocio\" && chmod 755 \"${STAGE_DIR}/usr/bin/ocio\" && cp \"${REPO_ROOT}/packaging/ocio.desktop\" \"${STAGE_DIR}/usr/share/applications/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.png\" \"${STAGE_DIR}/usr/share/icons/hicolor/256x256/apps/\" && cp \"${REPO_ROOT}/packaging/icons/ocio.svg\" \"${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/\" && cp \"${REPO_ROOT}/packaging/org.packathon.ocio.metainfo.xml\" \"${STAGE_DIR}/usr/share/metainfo/\"" \
-        "Copying the Debian directory skeleton and all payload files into the staging tree: the compiled ocio binary (usr/bin/), the XDG .desktop file (usr/share/applications/), the PNG and SVG icons (usr/share/icons/hicolor/), and the AppStream metainfo (usr/share/metainfo/). DEBIAN/ holds package metadata read by dpkg-deb at build time; the usr/ tree is the FHS payload installed onto the target system."
+
+    demo_cmd "cp -r \"${SCRIPT_DIR}/skeleton/.\" \"${STAGE_DIR}/\"" \
+        "Copy the skeleton: DEBIAN/ (control template, read by dpkg-deb at build time) and empty usr/ subdirectories (the FHS payload layout)."
+
+    demo_cmd "cp \"${BUILD_DIR}/bin/ocio\" \"${STAGE_DIR}/usr/bin/ocio\" && chmod 755 \"${STAGE_DIR}/usr/bin/ocio\"" \
+        "Install the compiled binary. usr/bin is on the default PATH, so dpkg will make it available system-wide. 755 = owner rwx, group/other rx."
+
+    demo_cmd "cp \"${REPO_ROOT}/packaging/ocio.desktop\" \"${STAGE_DIR}/usr/share/applications/\"" \
+        "The XDG .desktop file lets the desktop environment show ocio in its application menu."
+
+    demo_cmd "cp \"${REPO_ROOT}/packaging/icons/ocio.png\" \"${STAGE_DIR}/usr/share/icons/hicolor/256x256/apps/\"" \
+        "Fixed-size icon (256x256) for the hicolor icon theme."
+
+    demo_cmd "cp \"${REPO_ROOT}/packaging/icons/ocio.svg\" \"${STAGE_DIR}/usr/share/icons/hicolor/scalable/apps/\"" \
+        "Scalable SVG icon so the theme can render it at any size."
+
+    demo_cmd "cp \"${REPO_ROOT}/packaging/org.packathon.ocio.metainfo.xml\" \"${STAGE_DIR}/usr/share/metainfo/\"" \
+        "AppStream metainfo: app store metadata (screenshots, description, release notes)."
+
+    if command -v tree >/dev/null 2>&1; then
+        demo_cmd "tree \"${STAGE_DIR}\"" \
+            "The complete payload tree. Everything under usr/ will be installed onto the target system; DEBIAN/ is consumed by dpkg-deb and not installed."
+    else
+        demo_cmd "find \"${STAGE_DIR}\" -print | sort" \
+            "The complete payload tree (tree not installed, using find). Everything under usr/ will be installed onto the target system; DEBIAN/ is consumed by dpkg-deb and not installed."
+    fi
 
     # -----------------------------------------------------------------------------
     # Step 3: Compute shared library dependencies with dpkg-shlibdeps
     # -----------------------------------------------------------------------------
     echo "==> Step 3: Computing shared library dependencies with dpkg-shlibdeps..."
 
-    demo_cmd "cp \"${STAGE_DIR}/DEBIAN/control\" \"${WORK_DIR}/debian/control\" && SHLIBS_DEPENDS=\$(cd \"${WORK_DIR}\" && dpkg-shlibdeps -O \"debian/${PACKAGE_NAME}/usr/bin/ocio\" | sed -n 's/^shlibs:Depends=//p')" \
-        "Copying the control template to debian/control (where dpkg-shlibdeps expects it), then running dpkg-shlibdeps. It inspects the binary's DT_NEEDED entries, maps each SONAME to the Debian package that owns it (dpkg -S), and reads that package's symbols file to determine the minimum version. The -O flag prints the result as shlibs:Depends=... which we capture into SHLIBS_DEPENDS."
+    say "dpkg-shlibdeps reads the binary's DT_NEEDED entries, maps each SONAME to the Debian package that owns it (dpkg -S), and reads that package's symbols file to find the minimum version. It expects the source-package layout: debian/control next to debian/<pkg>/."
 
-    echo "    shlibs:Depends=${SHLIBS_DEPENDS}"
+    demo_cmd "cp \"${STAGE_DIR}/DEBIAN/control\" \"${WORK_DIR}/debian/control\"" \
+        "dpkg-shlibdeps looks for debian/control in the parent of the binary's tree. We copy the template there so it can find it."
+
+    demo_cmd "cd \"${WORK_DIR}\" && dpkg-shlibdeps -O \"debian/${PACKAGE_NAME}/usr/bin/ocio\"" \
+        "Run dpkg-shlibdeps on the staged binary. -O prints the result as shlibs:Depends=..."
+
+    SHLIBS_DEPENDS="$(cd "${WORK_DIR}" && dpkg-shlibdeps -O "debian/${PACKAGE_NAME}/usr/bin/ocio" | sed -n 's/^shlibs:Depends=//p')"
+    say "Captured: SHLIBS_DEPENDS=${SHLIBS_DEPENDS}"
+
+    if [ "${WITH_SHARED}" = true ]; then
+        echo "==> Step 3b: dpkg-shlibdeps failure mode (shared-raylib binary)..."
+        say "The shared-raylib binary carries a libraylib.so.550 DT_NEEDED entry. A source-built library ships no .shlibs file, so dpkg-shlibdeps cannot resolve it and aborts. This is the failure the static build above avoids."
+        demo_cmd "cp \"${SHARED_BUILD_DIR}/bin/ocio\" \"${STAGE_DIR}/usr/bin/ocio-shared\"" \
+            "Stage the shared-raylib binary alongside the static one in the same package tree."
+        demo_cmd "cd \"${WORK_DIR}\" && dpkg-shlibdeps -O \"debian/${PACKAGE_NAME}/usr/bin/ocio-shared\"" \
+            "Run dpkg-shlibdeps on the shared binary. Expected: 'error: no dependency information found for .../libraylib.so.550'. Neither -e nor -x skips the lookup. The only fixes: ship a libraylib550 package with its own .shlibs file, or do not link the library."
+        # Remove the staged shared binary so it is not picked up by md5sums / dpkg-deb.
+        rm -f "${STAGE_DIR}/usr/bin/ocio-shared"
+    fi
 
     # -----------------------------------------------------------------------------
     # Step 4: md5sums + control metadata
     # -----------------------------------------------------------------------------
     echo "==> Step 4: Generating md5sums and rendering control metadata..."
 
-    demo_cmd "INSTALLED_SIZE=\$(du -sk --exclude=DEBIAN \"${STAGE_DIR}\" | cut -f1)" \
-        "Calculating the installed size in KiB (excluding DEBIAN/ metadata, which is not installed). This value goes into the Installed-Size field of the control file."
+    say "The control file is a template with placeholders. We compute the values it needs (installed size, shlibdeps), generate md5sums for integrity checking, then render the template into the final DEBIAN/control."
 
-    demo_cmd "(cd \"${STAGE_DIR}\" && find usr -type f -print0 | sort -z | xargs -0 md5sum > DEBIAN/md5sums)" \
-        "Computing md5 checksums for every file in the payload. This is what debsums checks installed files against (dpkg --verify). dpkg-deb does not compute this; normally dh_md5sums does."
+    say "Calculate size to populate Installed-Size: the control file's Installed-Size field tells the package manager how much disk space the package will use. We measure the payload in KiB, excluding DEBIAN/ (metadata is consumed at install time, not installed)."
+    demo_cmd "du -sk --exclude=DEBIAN \"${STAGE_DIR}\"" \
+        "Measure the payload size in KiB. DEBIAN/ is excluded because it is not installed onto the target system."
 
-    demo_cmd "sed -i -e '/^#/d' -e \"s|\\\${version}|${VERSION}|\" -e \"s|\\\${arch}|${ARCH}|\" -e \"s|\\\${installed:Size}|${INSTALLED_SIZE}|\" -e \"s|\\\${shlibs:Depends}|${SHLIBS_DEPENDS}|\" \"${STAGE_DIR}/DEBIAN/control\"" \
-        "Rendering the control template in place: strips comment lines, substitutes version, architecture, installed size, and the computed shlibdeps. The result is the final DEBIAN/control file that dpkg-deb will embed in the package."
+    INSTALLED_SIZE="$(du -sk --exclude=DEBIAN "${STAGE_DIR}" | cut -f1)"
+    say "Captured: INSTALLED_SIZE=${INSTALLED_SIZE} KiB"
+
+    say "Generate DEBIAN/md5sums: one MD5 checksum per payload file. debsums (dpkg --verify) compares these against installed files to detect corruption. dpkg-deb does not compute these; normally dh_md5sums does."
+    demo_cmd "md5sum \"${STAGE_DIR}/usr/bin/ocio\"" \
+        "Example: MD5 of the main binary. The full md5sums file contains one line like this for every file under usr/."
+
+    (cd "${STAGE_DIR}" && find usr -type f -print0 | sort -z | xargs -0 md5sum > DEBIAN/md5sums)
+    say "Generated DEBIAN/md5sums with $(wc -l < "${STAGE_DIR}/DEBIAN/md5sums") entries."
+
+    say "Render the control template: strip comment lines, substitute version, arch, installed size, and shlibdeps. The result is the final DEBIAN/control that dpkg-deb embeds in the package."
+    sed -i -e '/^#/d' -e "s|\${version}|${VERSION}|" -e "s|\${arch}|${ARCH}|" -e "s|\${installed:Size}|${INSTALLED_SIZE}|" -e "s|\${shlibs:Depends}|${SHLIBS_DEPENDS}|" "${STAGE_DIR}/DEBIAN/control"
+
+    demo_cmd "cat \"${STAGE_DIR}/DEBIAN/control\"" \
+        "The rendered control file. Every placeholder is now a concrete value."
 
     # -----------------------------------------------------------------------------
     # Step 5: Package the DEB archive
@@ -254,14 +348,21 @@ fi
 # -----------------------------------------------------------------------------
 # Summary
 # -----------------------------------------------------------------------------
-echo "==> Generated DEB package in dist/:"
-ls -lh "${OUTPUT_DEB}"
+echo "==> Summary: inspecting the generated DEB package..."
 
-echo "==> DEB archive anatomy (ar t):"
-ar t "${OUTPUT_DEB}"
+demo_cmd "ls -lh \"${OUTPUT_DEB}\"" \
+    "The generated .deb file and its size."
 
-echo "==> DEB control metadata (dpkg-deb -I):"
-dpkg-deb -I "${OUTPUT_DEB}"
+demo_cmd "ar t \"${OUTPUT_DEB}\"" \
+    "A .deb is a Unix ar archive with three members: debian-binary (format version), control.tar.* (metadata), data.tar.* (file payload)."
+
+demo_cmd "dpkg-deb -I \"${OUTPUT_DEB}\"" \
+    "Control metadata: package name, version, architecture, dependencies, and description. This is what the package manager reads."
+
+if [ "${WITH_SHARED}" = true ] && [ "${MODE}" != "debhelper" ]; then
+    echo ""
+    echo "==> Shared-raylib binary available at ${SHARED_BUILD_DIR}/bin/ocio (for the dpkg-shlibdeps failure-mode demo)."
+fi
 
 if [ "${NO_CLEAN}" = true ]; then
     echo ""
